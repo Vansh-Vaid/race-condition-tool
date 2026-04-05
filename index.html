@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RaceGuard — Race Condition Detection Tool</title>
+  <meta name="description" content="Interactive educational tool for detecting and visualizing race conditions in concurrent multi-threaded systems using Bernstein's conditions and Lockset analysis." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════════════ -->
+<header class="app-header">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <span class="logo-text">RaceGuard</span>
+    <span class="header-subtitle">Race Condition Detection Tool</span>
+  </div>
+
+  <div class="header-center">
+    <div class="preset-bar">
+      <span class="preset-label">Presets:</span>
+      <button class="preset-btn" id="preset-counter"  onclick="loadPreset('counter')">Counter++</button>
+      <button class="preset-btn" id="preset-bank"     onclick="loadPreset('bank')">Bank Transfer</button>
+      <button class="preset-btn" id="preset-producer" onclick="loadPreset('producer')">Producer/Consumer</button>
+      <button class="preset-btn" id="preset-rw"       onclick="loadPreset('rw')">Reader/Writer</button>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <button class="btn-secondary" id="btn-reset" onclick="resetAll()">↺ Reset</button>
+    <button class="btn-primary"   id="btn-detect" onclick="runDetection()">▶ Detect Races</button>
+  </div>
+</header>
+
+<!-- ═══ MAIN LAYOUT ══════════════════════════════════════════════════════════ -->
+<div class="app-layout">
+
+  <!-- LEFT SIDEBAR: Thread Designer -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Thread Designer</h2>
+      <button class="btn-add-thread" id="btn-add-thread" onclick="addThread()">+ Thread</button>
+    </div>
+    <div id="threads-container" class="threads-container">
+      <!-- Thread cards injected by ui.js -->
+    </div>
+    <div class="sidebar-footer">
+      <div class="var-tracker-title">Shared State</div>
+      <div id="shared-vars" class="shared-vars-list">
+        <span class="empty-hint">No variables yet</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT: Main Content -->
+  <main class="main-content">
+
+    <!-- Stats Bar (shows after detection) -->
+    <div id="stats-bar" class="stats-bar hidden">
+      <div class="stat-card" id="stat-threads">
+        <div class="stat-value stat-value-default" id="val-threads">0</div>
+        <div class="stat-label">Threads</div>
+      </div>
+      <div class="stat-card" id="stat-vars">
+        <div class="stat-value stat-value-default" id="val-vars">0</div>
+        <div class="stat-label">Variables</div>
+      </div>
+      <div class="stat-card" id="stat-races">
+        <div class="stat-value" id="val-races">0</div>
+        <div class="stat-label">Races Found</div>
+      </div>
+      <div class="stat-card success" id="stat-safe">
+        <div class="stat-value" id="val-safe">0</div>
+        <div class="stat-label">Protected Pairs</div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-container">
+      <div class="tabs-header">
+        <button class="tab-btn active" id="tab-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
+        <button class="tab-btn"        id="tab-heatmap"  onclick="switchTab('heatmap')">🔥 Heatmap</button>
+        <button class="tab-btn"        id="tab-report"   onclick="switchTab('report')">📋 Race Report</button>
+      </div>
+
+      <!-- ── TIMELINE TAB ── -->
+      <div class="tab-content active" id="content-timeline">
+        <div class="timeline-controls" id="timeline-controls">
+          <div class="step-controls hidden" id="step-controls">
+            <button class="step-btn" id="btn-prev" onclick="stepPrev()">◀ Prev</button>
+            <span class="step-indicator" id="step-indicator">Step 1 / 1</span>
+            <button class="step-btn" id="btn-next" onclick="stepNext()">Next ▶</button>
+            <button class="step-btn accent" id="btn-auto" onclick="toggleAutoPlay()">▶ Auto</button>
+          </div>
+          <div class="timeline-legend hidden" id="timeline-legend">
+            <span class="legend-item"><span class="legend-dot read"></span>READ</span>
+            <span class="legend-item"><span class="legend-dot write"></span>WRITE</span>
+            <span class="legend-item"><span class="legend-dot lock"></span>LOCK</span>
+            <span class="legend-item"><span class="legend-dot unlock"></span>UNLOCK</span>
+            <span class="legend-item"><span class="legend-dot race"></span>RACE</span>
+          </div>
+        </div>
+        <div class="timeline-container" id="timeline-container">
+          <div class="empty-state" id="timeline-empty">
+            <div class="empty-icon">🔍</div>
+            <div class="empty-title">Design your threads, then click "Detect Races"</div>
+            <div class="empty-sub">Add threads on the left panel, configure READ/WRITE/LOCK/UNLOCK operations, then run the analysis.</div>
+          </div>
+          <svg id="timeline-svg" class="timeline-svg hidden"></svg>
+        </div>
+      </div>
+
+      <!-- ── HEATMAP TAB ── -->
+      <div class="tab-content" id="content-heatmap">
+        <div class="heatmap-container" id="heatmap-container">
+          <div class="empty-state" id="heatmap-empty">
+            <div class="empty-icon">🔥</div>
+            <div class="empty-title">Memory Access Heatmap</div>
+            <div class="empty-sub">Shows how threads access shared variables over time. Race windows are highlighted in red.</div>
+          </div>
+          <div id="heatmap-grid" class="heatmap-grid hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── REPORT TAB ── -->
+      <div class="tab-content" id="content-report">
+        <div class="report-container" id="report-container">
+          <div class="empty-state" id="report-empty">
+            <div class="empty-icon">📋</div>
+            <div class="empty-title">Race Condition Report</div>
+            <div class="empty-sub">A detailed analysis of all race conditions, applying Bernstein's conditions and Lockset analysis algorithms.</div>
+          </div>
+          <div id="report-content" class="hidden"></div>
+        </div>
+      </div>
+
+    </div><!-- /tabs-container -->
+  </main>
+</div>
+
+<!-- Toast Notification -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
