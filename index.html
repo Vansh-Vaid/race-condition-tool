@@ -5,144 +5,333 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RaceGuard — Race Condition Detection Tool</title>
   <meta name="description" content="Interactive educational tool for detecting and visualizing race conditions in concurrent multi-threaded systems using Bernstein's conditions and Lockset analysis." />
+  <meta name="theme-color" content="#0a0e1a" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ═══ HEADER ═══════════════════════════════════════════════════════════════ -->
-<header class="app-header">
-  <div class="logo">
-    <div class="logo-icon">⚡</div>
-    <span class="logo-text">RaceGuard</span>
-    <span class="header-subtitle">Race Condition Detection Tool</span>
-  </div>
-
-  <div class="header-center">
-    <div class="preset-bar">
-      <span class="preset-label">Presets:</span>
-      <button class="preset-btn" id="preset-counter"  onclick="loadPreset('counter')">Counter++</button>
-      <button class="preset-btn" id="preset-bank"     onclick="loadPreset('bank')">Bank Transfer</button>
-      <button class="preset-btn" id="preset-producer" onclick="loadPreset('producer')">Producer/Consumer</button>
-      <button class="preset-btn" id="preset-rw"       onclick="loadPreset('rw')">Reader/Writer</button>
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
+<header class="app-header" id="app-header">
+  <div class="header-left">
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-info">
+        <span class="logo-text">RaceGuard</span>
+        <span class="logo-sub">Race Condition Detector · CSE316</span>
+      </div>
     </div>
   </div>
-
-  <div class="header-right">
-    <button class="btn-secondary" id="btn-reset" onclick="resetAll()">↺ Reset</button>
-    <button class="btn-primary"   id="btn-detect" onclick="runDetection()">▶ Detect Races</button>
+  <nav class="header-nav">
+    <button class="nav-btn" id="nav-design" onclick="scrollToSection('design-section')" data-active="true">🛠 Design</button>
+    <button class="nav-btn" id="nav-results" onclick="scrollToSection('results-section')">📊 Results</button>
+    <button class="nav-btn" id="nav-learn" onclick="scrollToSection('learn-section')">📚 Learn</button>
+  </nav>
+  <div class="header-actions">
+    <button class="btn-reset" id="btn-reset" onclick="resetAll()">↺ Reset</button>
+    <button class="btn-detect" id="btn-detect" onclick="runDetection()">▶ Detect Races</button>
   </div>
 </header>
 
-<!-- ═══ MAIN LAYOUT ══════════════════════════════════════════════════════════ -->
-<div class="app-layout">
+<!-- ═══ MAIN SCROLLABLE CONTENT ══════════════════════════════════════════ -->
+<div class="app-body" id="app-body">
 
-  <!-- LEFT SIDEBAR: Thread Designer -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <h2>Thread Designer</h2>
-      <button class="btn-add-thread" id="btn-add-thread" onclick="addThread()">+ Thread</button>
-    </div>
-    <div id="threads-container" class="threads-container">
-      <!-- Thread cards injected by ui.js -->
-    </div>
-    <div class="sidebar-footer">
-      <div class="var-tracker-title">Shared State</div>
-      <div id="shared-vars" class="shared-vars-list">
-        <span class="empty-hint">No variables yet</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- RIGHT: Main Content -->
-  <main class="main-content">
-
-    <!-- Stats Bar (shows after detection) -->
-    <div id="stats-bar" class="stats-bar hidden">
-      <div class="stat-card" id="stat-threads">
-        <div class="stat-value stat-value-default" id="val-threads">0</div>
-        <div class="stat-label">Threads</div>
-      </div>
-      <div class="stat-card" id="stat-vars">
-        <div class="stat-value stat-value-default" id="val-vars">0</div>
-        <div class="stat-label">Variables</div>
-      </div>
-      <div class="stat-card" id="stat-races">
-        <div class="stat-value" id="val-races">0</div>
-        <div class="stat-label">Races Found</div>
-      </div>
-      <div class="stat-card success" id="stat-safe">
-        <div class="stat-value" id="val-safe">0</div>
-        <div class="stat-label">Protected Pairs</div>
+  <!-- ── HERO / INTRO ───────────────────────────────────────────────── -->
+  <section class="hero" id="hero-section">
+    <div class="hero-content">
+      <h1 class="hero-title">Race Condition Detection Tool</h1>
+      <p class="hero-desc">
+        Design concurrent threads, define their READ/WRITE operations on shared variables,
+        and detect <strong>race conditions</strong> using industry-standard algorithms.
+        This tool applies <em>Bernstein's Conditions</em> to identify conflicting operations
+        and the <em>Eraser/Lockset algorithm</em> to verify mutex protection.
+      </p>
+      <div class="hero-chips">
+        <span class="chip chip-blue">Bernstein's Conditions</span>
+        <span class="chip chip-purple">Lockset Analysis</span>
+        <span class="chip chip-cyan">Visual Timeline</span>
+        <span class="chip chip-green">Memory Heatmap</span>
       </div>
     </div>
+  </section>
 
-    <!-- TABS -->
-    <div class="tabs-container">
-      <div class="tabs-header">
-        <button class="tab-btn active" id="tab-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
-        <button class="tab-btn"        id="tab-heatmap"  onclick="switchTab('heatmap')">🔥 Heatmap</button>
-        <button class="tab-btn"        id="tab-report"   onclick="switchTab('report')">📋 Race Report</button>
+  <!-- ── PRESETS BAR ────────────────────────────────────────────────── -->
+  <section class="presets-section" id="presets-section">
+    <div class="section-inner">
+      <div class="presets-header">
+        <h2 class="section-label">📦 Quick Start Presets</h2>
+        <p class="section-hint">Select a preset scenario to auto-populate threads, or build your own below.</p>
+      </div>
+      <div class="presets-grid">
+        <button class="preset-card" id="preset-counter" onclick="loadPreset('counter')">
+          <span class="preset-emoji">🔢</span>
+          <span class="preset-name">Counter++</span>
+          <span class="preset-desc">Two threads increment a shared counter without sync.</span>
+        </button>
+        <button class="preset-card" id="preset-bank" onclick="loadPreset('bank')">
+          <span class="preset-emoji">🏦</span>
+          <span class="preset-name">Bank Transfer</span>
+          <span class="preset-desc">Sender uses mutex, receiver doesn't — partial protection.</span>
+        </button>
+        <button class="preset-card" id="preset-producer" onclick="loadPreset('producer')">
+          <span class="preset-emoji">📦</span>
+          <span class="preset-name">Producer/Consumer</span>
+          <span class="preset-desc">Unsynchronized buffer and count access.</span>
+        </button>
+        <button class="preset-card" id="preset-rw" onclick="loadPreset('rw')">
+          <span class="preset-emoji">📖</span>
+          <span class="preset-name">Reader/Writer</span>
+          <span class="preset-desc">One writer and two readers with no locking.</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DESIGN SECTION (Thread Designer) ───────────────────────────── -->
+  <section class="design-section" id="design-section">
+    <div class="section-inner">
+      <div class="section-title-row">
+        <h2 class="section-label">🛠 Thread Designer</h2>
+        <button class="btn-add-thread" id="btn-add-thread" onclick="addThread()">+ Add Thread</button>
+      </div>
+      <p class="section-explain">
+        Each card below represents a <strong>thread</strong> — an independent unit of execution.
+        Add <strong>READ</strong> / <strong>WRITE</strong> operations on shared variables,
+        and optionally use <strong>LOCK</strong> / <strong>UNLOCK</strong> to protect them with a mutex.
+        A race condition occurs when two threads access the same variable concurrently and at least one writes — without holding a common lock.
+      </p>
+
+      <div id="threads-container" class="threads-grid">
+        <!-- Thread cards injected by ui.js -->
       </div>
 
-      <!-- ── TIMELINE TAB ── -->
-      <div class="tab-content active" id="content-timeline">
-        <div class="timeline-controls" id="timeline-controls">
-          <div class="step-controls hidden" id="step-controls">
-            <button class="step-btn" id="btn-prev" onclick="stepPrev()">◀ Prev</button>
-            <span class="step-indicator" id="step-indicator">Step 1 / 1</span>
-            <button class="step-btn" id="btn-next" onclick="stepNext()">Next ▶</button>
-            <button class="step-btn accent" id="btn-auto" onclick="toggleAutoPlay()">▶ Auto</button>
-          </div>
-          <div class="timeline-legend hidden" id="timeline-legend">
-            <span class="legend-item"><span class="legend-dot read"></span>READ</span>
-            <span class="legend-item"><span class="legend-dot write"></span>WRITE</span>
-            <span class="legend-item"><span class="legend-dot lock"></span>LOCK</span>
-            <span class="legend-item"><span class="legend-dot unlock"></span>UNLOCK</span>
-            <span class="legend-item"><span class="legend-dot race"></span>RACE</span>
-          </div>
+      <!-- Shared State Panel -->
+      <div class="shared-state-panel" id="shared-state-panel">
+        <div class="shared-state-header">
+          <span class="shared-state-icon">🔗</span>
+          <span class="shared-state-title">Shared State</span>
+          <span class="shared-state-hint">Variables and locks referenced by your threads</span>
         </div>
-        <div class="timeline-container" id="timeline-container">
-          <div class="empty-state" id="timeline-empty">
-            <div class="empty-icon">🔍</div>
-            <div class="empty-title">Design your threads, then click "Detect Races"</div>
-            <div class="empty-sub">Add threads on the left panel, configure READ/WRITE/LOCK/UNLOCK operations, then run the analysis.</div>
-          </div>
-          <svg id="timeline-svg" class="timeline-svg hidden"></svg>
+        <div id="shared-vars" class="shared-vars-list">
+          <span class="empty-hint">No variables yet — add operations above</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DETECT BUTTON (prominent, centered CTA) ──────────────────── -->
+  <section class="cta-section" id="cta-section">
+    <button class="btn-detect-large" id="btn-detect-large" onclick="runDetection()">
+      <span class="detect-icon">⚡</span>
+      <span class="detect-text">Detect Race Conditions</span>
+      <span class="detect-sub">Runs Bernstein's Conditions + Lockset Analysis</span>
+    </button>
+  </section>
+
+  <!-- ── RESULTS SECTION ────────────────────────────────────────────── -->
+  <section class="results-section hidden" id="results-section">
+    <div class="section-inner">
+      <h2 class="section-label">📊 Detection Results</h2>
+      <p class="section-explain" id="results-explain"></p>
+
+      <!-- Stats Bar -->
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat-card" id="stat-threads">
+          <div class="stat-value" id="val-threads">0</div>
+          <div class="stat-label">Threads</div>
+        </div>
+        <div class="stat-card" id="stat-vars">
+          <div class="stat-value" id="val-vars">0</div>
+          <div class="stat-label">Variables</div>
+        </div>
+        <div class="stat-card" id="stat-races">
+          <div class="stat-value" id="val-races">0</div>
+          <div class="stat-label">Races Found</div>
+        </div>
+        <div class="stat-card" id="stat-safe">
+          <div class="stat-value" id="val-safe">0</div>
+          <div class="stat-label">Protected</div>
         </div>
       </div>
 
-      <!-- ── HEATMAP TAB ── -->
-      <div class="tab-content" id="content-heatmap">
-        <div class="heatmap-container" id="heatmap-container">
-          <div class="empty-state" id="heatmap-empty">
-            <div class="empty-icon">🔥</div>
-            <div class="empty-title">Memory Access Heatmap</div>
-            <div class="empty-sub">Shows how threads access shared variables over time. Race windows are highlighted in red.</div>
+      <!-- TABS -->
+      <div class="tabs-container">
+        <div class="tabs-header">
+          <button class="tab-btn active" id="tab-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
+          <button class="tab-btn" id="tab-heatmap" onclick="switchTab('heatmap')">🔥 Heatmap</button>
+          <button class="tab-btn" id="tab-report" onclick="switchTab('report')">📋 Report</button>
+        </div>
+
+        <!-- ── TIMELINE TAB ── -->
+        <div class="tab-content active" id="content-timeline">
+          <div class="tab-explain">
+            <strong>Execution Timeline:</strong> Shows how operations from different threads
+            interleave in time. Operations involved in a race are highlighted in <span class="text-danger">red</span>.
+            Dashed arcs connect conflicting pairs.
           </div>
-          <div id="heatmap-grid" class="heatmap-grid hidden"></div>
+          <div class="timeline-controls" id="timeline-controls">
+            <div class="step-controls hidden" id="step-controls">
+              <button class="step-btn" id="btn-prev" onclick="stepPrev()">◀ Prev</button>
+              <span class="step-indicator" id="step-indicator">All steps</span>
+              <button class="step-btn" id="btn-next" onclick="stepNext()">Next ▶</button>
+              <button class="step-btn accent" id="btn-auto" onclick="toggleAutoPlay()">▶ Auto</button>
+            </div>
+            <div class="timeline-legend hidden" id="timeline-legend">
+              <span class="legend-item"><span class="legend-dot read"></span>READ</span>
+              <span class="legend-item"><span class="legend-dot write"></span>WRITE</span>
+              <span class="legend-item"><span class="legend-dot lock"></span>LOCK</span>
+              <span class="legend-item"><span class="legend-dot unlock"></span>UNLOCK</span>
+              <span class="legend-item"><span class="legend-dot race"></span>RACE</span>
+            </div>
+          </div>
+          <div class="timeline-container" id="timeline-container">
+            <svg id="timeline-svg" class="timeline-svg hidden"></svg>
+          </div>
+        </div>
+
+        <!-- ── HEATMAP TAB ── -->
+        <div class="tab-content" id="content-heatmap">
+          <div class="tab-explain">
+            <strong>Memory Access Heatmap:</strong> A grid showing which threads access which
+            shared variables at each time step. Cells with <span class="text-danger">red borders</span>
+            indicate race windows where conflicting accesses happen without lock protection.
+          </div>
+          <div class="heatmap-container" id="heatmap-container">
+            <div id="heatmap-grid" class="heatmap-grid hidden"></div>
+          </div>
+        </div>
+
+        <!-- ── REPORT TAB ── -->
+        <div class="tab-content" id="content-report">
+          <div class="tab-explain">
+            <strong>Race Condition Report:</strong> Detailed breakdown of every conflicting pair.
+            <span class="text-danger">CRITICAL</span> = Write-Write (guaranteed data corruption),
+            <span class="text-warning">WARNING</span> = Read-Write (possible stale reads).
+            <span class="text-success">SAFE</span> pairs are protected by a common mutex.
+          </div>
+          <div class="report-container" id="report-container">
+            <div id="report-content" class="hidden"></div>
+          </div>
         </div>
       </div>
+    </div>
+  </section>
 
-      <!-- ── REPORT TAB ── -->
-      <div class="tab-content" id="content-report">
-        <div class="report-container" id="report-container">
-          <div class="empty-state" id="report-empty">
-            <div class="empty-icon">📋</div>
-            <div class="empty-title">Race Condition Report</div>
-            <div class="empty-sub">A detailed analysis of all race conditions, applying Bernstein's conditions and Lockset analysis algorithms.</div>
+  <!-- ── LEARN SECTION ──────────────────────────────────────────────── -->
+  <section class="learn-section" id="learn-section">
+    <div class="section-inner">
+      <h2 class="section-label">📚 How It Works</h2>
+
+      <div class="learn-grid">
+        <!-- Card 1: What is a Race Condition? -->
+        <div class="learn-card">
+          <div class="learn-card-icon">⚠️</div>
+          <h3>What is a Race Condition?</h3>
+          <p>A <strong>race condition</strong> occurs when two or more threads access a shared variable
+            concurrently and at least one of them <em>writes</em> to it. The final result depends on the
+            unpredictable order of execution — meaning the program may produce different outputs each time it runs.</p>
+          <div class="learn-example">
+            <strong>Example:</strong> Thread A reads <code>counter = 5</code>, Thread B reads <code>counter = 5</code>,
+            both compute <code>5 + 1 = 6</code> and write <code>6</code>. The counter should be <code>7</code>,
+            but ends up as <code>6</code> — a <em>lost update</em>.
           </div>
-          <div id="report-content" class="hidden"></div>
+        </div>
+
+        <!-- Card 2: Bernstein's Conditions -->
+        <div class="learn-card">
+          <div class="learn-card-icon">📐</div>
+          <h3>Bernstein's Conditions</h3>
+          <p>Two operations in different threads form a <strong>potential race</strong> if all of these are true:</p>
+          <ol>
+            <li>They belong to <strong>different threads</strong></li>
+            <li>They access the <strong>same shared variable</strong></li>
+            <li>At least one is a <strong>WRITE</strong> operation</li>
+            <li>They can execute <strong>concurrently</strong> (no ordering constraint)</li>
+          </ol>
+          <p>If only READs are involved, there is no race — reading shared data is safe.</p>
+        </div>
+
+        <!-- Card 3: Lockset / Eraser -->
+        <div class="learn-card">
+          <div class="learn-card-icon">🔒</div>
+          <h3>Lockset / Eraser Algorithm</h3>
+          <p>The <strong>Eraser algorithm</strong> (from the 1997 Savage et al. paper) tracks which locks
+            are held when each operation executes. For each pair of conflicting operations:</p>
+          <ul>
+            <li>Compute the <strong>lock set</strong> of each operation (all locks held at that point)</li>
+            <li>If the lock sets have a <strong>non-empty intersection</strong> → protected (no race)</li>
+            <li>If the lock sets have <strong>no common lock</strong> → unprotected → <span class="text-danger">RACE!</span></li>
+          </ul>
+          <p>This is a conservative (may report false positives) but effective technique used in real-world race detectors.</p>
+        </div>
+
+        <!-- Card 4: Race Types -->
+        <div class="learn-card">
+          <div class="learn-card-icon">🏷️</div>
+          <h3>Race Severity Levels</h3>
+          <div class="severity-table">
+            <div class="severity-row critical">
+              <span class="sev-badge sev-critical">CRITICAL</span>
+              <span class="sev-type">Write-Write (WW)</span>
+              <span class="sev-desc">Both threads write — guaranteed data corruption</span>
+            </div>
+            <div class="severity-row warning">
+              <span class="sev-badge sev-warning">WARNING</span>
+              <span class="sev-type">Read-Write (RW/WR)</span>
+              <span class="sev-desc">One reads while other writes — may see stale/partial data</span>
+            </div>
+            <div class="severity-row safe">
+              <span class="sev-badge sev-safe">SAFE</span>
+              <span class="sev-type">Protected by mutex</span>
+              <span class="sev-desc">Common lock ensures mutual exclusion — no race</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: How to fix -->
+        <div class="learn-card">
+          <div class="learn-card-icon">🛡️</div>
+          <h3>How to Fix Race Conditions</h3>
+          <p>The most common solution is to use <strong>mutual exclusion (mutex)</strong>:</p>
+          <ol>
+            <li><strong>LOCK(mutex)</strong> before accessing the shared variable</li>
+            <li>Perform your <strong>READ / WRITE</strong> operations</li>
+            <li><strong>UNLOCK(mutex)</strong> when done</li>
+          </ol>
+          <p>When all threads acquire the <em>same lock</em> before accessing a variable,
+            only one thread can access it at a time — eliminating the race.</p>
+          <div class="learn-example">
+            <strong>Try it:</strong> Load the "Bank Transfer" preset, notice the Sender uses a lock but
+            the Receiver doesn't. The tool will detect a race. Add LOCK/UNLOCK around the Receiver's operations to fix it!
+          </div>
+        </div>
+
+        <!-- Card 6: Operations Guide -->
+        <div class="learn-card">
+          <div class="learn-card-icon">📝</div>
+          <h3>Operation Types Guide</h3>
+          <div class="ops-guide">
+            <div class="ops-row"><span class="op-badge badge-read">READ</span> Read from a shared variable (e.g., <code>temp = counter</code>)</div>
+            <div class="ops-row"><span class="op-badge badge-write">WRITE</span> Write to a shared variable (e.g., <code>counter = temp + 1</code>)</div>
+            <div class="ops-row"><span class="op-badge badge-lock">LOCK</span> Acquire a mutex lock (e.g., <code>pthread_mutex_lock(&m)</code>)</div>
+            <div class="ops-row"><span class="op-badge badge-unlock">UNLOCK</span> Release a mutex lock (e.g., <code>pthread_mutex_unlock(&m)</code>)</div>
+          </div>
         </div>
       </div>
+    </div>
+  </section>
 
-    </div><!-- /tabs-container -->
-  </main>
-</div>
+  <!-- ── FOOTER ─────────────────────────────────────────────────────── -->
+  <footer class="app-footer">
+    <p>RaceGuard — CSE316 Operating Systems Project · Built with Bernstein's Conditions & Eraser/Lockset Algorithm</p>
+  </footer>
+
+</div><!-- /app-body -->
 
 <!-- Toast Notification -->
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" role="alert"></div>
 
 <script src="engine.js"></script>
 <script src="ui.js"></script>
