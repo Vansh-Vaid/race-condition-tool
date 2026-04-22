@@ -1,6 +1,6 @@
-const THREAD_COLORS = ['#7c6aff','#00d4ff','#ff6b9d','#ffd93d','#6bcb77','#ff9f43'];
-const OP_COLORS = { READ:'#38bdf8', WRITE:'#fb923c', LOCK:'#4ade80', UNLOCK:'#34d399' };
-const RACE_COLOR = '#ff4757';
+let THREAD_COLORS = ['#0071e3','#5ac8fa','#ff3b30','#ff9500','#34c759','#ff2d55'];
+let OP_COLORS = { READ:'#007aff', WRITE:'#ff9500', LOCK:'#34c759', UNLOCK:'#30b0c7' };
+let RACE_COLOR = '#ff3b30';
 
 const TL = {
   LABEL_W: 110, OP_W: 84, OP_GAP: 8, OP_H: 48,
@@ -8,6 +8,27 @@ const TL = {
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
+
+const PALETTE_LIGHT = {
+  threads: ['#005cbf', '#0284c7', '#dc2626', '#d97706', '#059669', '#be123c'],
+  ops: { READ:'#0071e3', WRITE:'#d97706', LOCK:'#059669', UNLOCK:'#0891b2' },
+  race: '#dc2626'
+};
+const PALETTE_DARK = {
+  threads: ['#60a5fa', '#38bdf8', '#f87171', '#fbbf24', '#34d399', '#fb7185'],
+  ops: { READ:'#60a5fa', WRITE:'#fbbf24', LOCK:'#34d399', UNLOCK:'#22d3ee' },
+  race: '#ff453a'
+};
+
+function updateJsPalette(isDark) {
+  const p = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+  THREAD_COLORS = p.threads;
+  OP_COLORS = p.ops;
+  RACE_COLOR = p.race;
+  // Re-assign thread colors since they hold the property locally when created
+  uiThreads.forEach((t, i) => { t.color = THREAD_COLORS[i % THREAD_COLORS.length]; });
+}
+
 let uiThreads = [];
 let threadIdCtr = 0;
 let detectionResult = null;
@@ -464,6 +485,24 @@ function updateSharedVars() {
 // ══════════════════════════════════════════════════════════════════════════════
 // RESET
 // ══════════════════════════════════════════════════════════════════════════════
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('raceguard-theme', newTheme);
+  updateThemeButton();
+  updateJsPalette(newTheme === 'dark');
+  if (typeof renderTimeline === 'function') renderTimeline(); // Redraw
+}
+
+function updateThemeButton() {
+  const btn = document.getElementById('btn-theme');
+  if (btn) {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.innerHTML = isDark ? '☀️ Light' : '🌙 Dark';
+  }
+}
+
 function resetAll() {
   uiThreads = []; threadIdCtr = 0; detectionResult = null; currentStep = -1;
   activePreset = null;
