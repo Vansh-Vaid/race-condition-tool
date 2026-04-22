@@ -6,10 +6,21 @@
   <title>RaceGuard — Race Condition Detection Tool</title>
   <meta name="description" content="Interactive educational tool for detecting and visualizing race conditions in concurrent multi-threaded systems using Bernstein's conditions and Lockset analysis." />
   <meta name="theme-color" content="#0a0e1a" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
   <link rel="stylesheet" href="style.css" />
+
+  <script>
+    function initTheme() {
+      const savedTheme = localStorage.getItem('raceguard-theme');
+      if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    }
+    initTheme();
+  </script>
+
 </head>
 <body>
 
@@ -115,7 +126,7 @@
       <div class="logo-icon">⚡</div>
       <div class="logo-info">
         <span class="logo-text">RaceGuard</span>
-        <span class="logo-sub">Race Condition Detector · CSE316</span>
+        <span class="logo-sub">Advanced Debugging Utility</span>
       </div>
     </div>
   </div>
@@ -131,6 +142,7 @@
     </button>
   </nav>
   <div class="header-actions">
+    <button class="btn-reset" id="btn-theme" onclick="toggleTheme()" style="margin-right:4px;">🌙 Dark</button>
     <button class="btn-reset" id="btn-reset" onclick="resetAll()">↺ Reset</button>
     <button class="btn-detect" id="btn-detect" onclick="runDetection()">▶ Detect Races</button>
   </div>
@@ -142,7 +154,7 @@
   <!-- ── HERO / INTRO ───────────────────────────────────────────────── -->
   <section class="hero" id="hero-section">
     <div class="hero-content">
-      <div class="hero-badge">CSE316 Operating Systems Project</div>
+      <div class="hero-badge">System Debugging Utility</div>
       <h1 class="hero-title">Race Condition Detection Tool</h1>
       <p class="hero-desc">
         Design concurrent threads, define their READ/WRITE operations on shared variables,
@@ -253,9 +265,12 @@
               <span>Release a mutex lock (e.g., <code>pthread_mutex_unlock(&m)</code>)</span>
             </div>
           </div>
-          <p class="explain-note">
-            A <strong>race condition</strong> occurs when two threads access the same variable
-            concurrently and at least one writes — without holding a common lock.
+          <div style="margin-top:14px; padding:14px; background:var(--bg-hover); border-radius:var(--r); font-size:13px; line-height:1.6; border-left:3px solid var(--accent);">
+            <strong style="color:var(--text);">💡 Why do we need shared variables?</strong><br>
+            Threads execute concurrently and communicate exclusively via shared memory. By specifying a target variable (e.g., <code>balance</code>), you map which specific memory address is being accessed by multiple threads simultaneously.
+          </div>
+          <p class="explain-note" style="margin-top:14px;">
+            A <strong style="color:var(--warning);">race condition</strong> occurs when two threads access the exact same variable concurrently, and at least one is a write operation — running without holding a <strong>common synchronization lock</strong>. Use the designer below to simulate executions.
           </p>
         </div>
       </div>
@@ -285,7 +300,7 @@
       <button class="btn-detect-large" id="btn-detect-large" onclick="runDetection()">
         <span class="detect-icon">⚡</span>
         <span class="detect-text">Detect Race Conditions</span>
-        <span class="detect-sub">Runs Bernstein's Conditions + Lockset Analysis</span>
+        <span class="detect-sub">Runs Bernstein's Conditions + Lockset Analysis on the fly</span>
       </button>
       <p class="cta-hint">Or press <kbd>Enter</kbd> to run detection</p>
     </div>
@@ -339,6 +354,9 @@
             interleave in time. Operations involved in a race are highlighted in <span class="text-danger">red</span>.
             Dashed arcs connect conflicting pairs. Use step controls to walk through each operation.
           </div>
+          <div class="tab-explain" style="background:var(--bg-hover); border-color:var(--info); margin-top:12px; border-radius:var(--r);">
+            <strong style="color:var(--text);">💡 Visualizing Temporal Dependencies:</strong> This timeline graphs time linearly from left to right, while stacking threads vertically. <em>Dashed lines</em> indicate conflicting operations across threads. If two actions intersect vertically across a dashed conflict without holding the exact same active lock, the execution pathway explicitly guarantees a data race.
+          </div>
           <div class="timeline-controls" id="timeline-controls">
             <div class="step-controls hidden" id="step-controls">
               <button class="step-btn" id="btn-prev" onclick="stepPrev()">◀ Prev</button>
@@ -372,6 +390,9 @@
             shared variables at each time step. Cells with <span class="text-danger">red borders</span>
             indicate race windows where conflicting accesses happen without lock protection.
             Hover over cells for details.
+          </div>
+          <div class="tab-explain" style="background:var(--bg-hover); border-color:var(--danger); margin-top:12px; border-radius:var(--r);">
+            <strong style="color:var(--text);">⚠️ Memory Access Density:</strong> The Heatmap shifts perspective from <em>Time</em> to <em>Memory</em> architecture. It instantly spotlights overloaded shared memory addresses. Heavily occupied rows signify severe concurrency bottlenecks. Data cells surrounded by a pulsing red border identify exact intervals where lock coverage fails.
           </div>
           <div class="heatmap-container" id="heatmap-container">
             <div id="heatmap-grid" class="heatmap-grid hidden"></div>
@@ -532,7 +553,7 @@
 
   <!-- ── FOOTER ─────────────────────────────────────────────────────── -->
   <footer class="app-footer">
-    <p>RaceGuard — CSE316 Operating Systems Project · Built with Bernstein's Conditions & Eraser/Lockset Algorithm</p>
+    <p>RaceGuard — System Debugging Utility · Built with Bernstein's Conditions & Eraser/Lockset Algorithm</p>
   </footer>
 
 </div><!-- /app-body -->
