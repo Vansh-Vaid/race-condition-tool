@@ -1,3 +1,8 @@
+/**
+ * Race Condition Detection Engine — CSE316
+ * Algorithms: Bernstein's Conditions + Eraser Lockset Analysis
+ */
+
 class RaceDetectionEngine {
   constructor() { this.threads = []; }
 
