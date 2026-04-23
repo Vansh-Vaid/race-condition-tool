@@ -508,6 +508,17 @@ function toggleTheme() {
     }
   });
 
+  // Update engine output objects with new colors so re-renders match theme
+  if (detectionResult) {
+    detectionResult.threads.forEach(dt => {
+      const uiT = uiThreads.find(u => u.id === dt.id);
+      if (uiT) {
+        dt.color = uiT.color;
+        dt.operations.forEach(op => op.threadColor = uiT.color);
+      }
+    });
+  }
+
   if (typeof renderTimeline === 'function') renderTimeline(); // Redraw
   if (typeof renderHeatmap === 'function') renderHeatmap();
   if (typeof renderReport === 'function') renderReport();
