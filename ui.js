@@ -39,6 +39,9 @@ let onboardingSlide = 0;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  updateJsPalette(isDark);
+  updateThemeButton();
   loadPreset('counter');
   setupKeyboardShortcuts();
   setupScrollSpy();
@@ -492,7 +495,22 @@ function toggleTheme() {
   localStorage.setItem('raceguard-theme', newTheme);
   updateThemeButton();
   updateJsPalette(newTheme === 'dark');
+  
+  // Smoothly update thread dots without triggering re-render animations
+  uiThreads.forEach(t => {
+    const card = document.getElementById(`card-${t.id}`);
+    if (card) {
+      const dot = card.querySelector('.thread-color-dot');
+      if (dot) {
+        dot.style.background = t.color;
+        dot.style.boxShadow = `0 0 8px ${t.color}`;
+      }
+    }
+  });
+
   if (typeof renderTimeline === 'function') renderTimeline(); // Redraw
+  if (typeof renderHeatmap === 'function') renderHeatmap();
+  if (typeof renderReport === 'function') renderReport();
 }
 
 function updateThemeButton() {
