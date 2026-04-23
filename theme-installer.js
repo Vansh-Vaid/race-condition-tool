@@ -4,7 +4,7 @@ const path = require('path');
 const cssPath = path.join(__dirname, 'style.css');
 let css = fs.readFileSync(cssPath, 'utf8');
 
-// Add Dark Theme properties
+
 const darkThemeStr = `
 
 [data-theme="dark"] {
