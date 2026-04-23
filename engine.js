@@ -26,7 +26,7 @@ class RaceDetectionEngine {
   getLocks() {
     const s = new Set();
     this.threads.forEach(t => t.operations.forEach(op => {
-      if (op.type === 'LOCK' || op.type === 'UNLOCK') s.add(op.target);
+      if (['LOCK', 'UNLOCK', 'WAIT', 'SIGNAL'].includes(op.type)) s.add(op.target);
     }));
     return [...s].sort();
   }
@@ -37,8 +37,8 @@ class RaceDetectionEngine {
     for (const thread of this.threads) {
       const held = new Set();
       for (const op of thread.operations) {
-        if (op.type === 'LOCK') held.add(op.target);
-        else if (op.type === 'UNLOCK') held.delete(op.target);
+        if (op.type === 'LOCK' || op.type === 'WAIT') held.add(op.target);
+        else if (op.type === 'UNLOCK' || op.type === 'SIGNAL') held.delete(op.target);
         map[op.id] = new Set(held);
       }
     }
