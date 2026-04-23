@@ -1,5 +1,5 @@
 let THREAD_COLORS = ['#0071e3','#5ac8fa','#ff3b30','#ff9500','#34c759','#ff2d55'];
-let OP_COLORS = { READ:'#007aff', WRITE:'#ff9500', LOCK:'#34c759', UNLOCK:'#30b0c7' };
+let OP_COLORS = { READ:'#007aff', WRITE:'#ff9500', LOCK:'#34c759', UNLOCK:'#30b0c7', WAIT:'#a855f7', SIGNAL:'#d946ef' };
 let RACE_COLOR = '#ff3b30';
 
 const TL = {
@@ -11,12 +11,12 @@ const TL = {
 
 const PALETTE_LIGHT = {
   threads: ['#005cbf', '#0284c7', '#dc2626', '#d97706', '#059669', '#be123c'],
-  ops: { READ:'#0071e3', WRITE:'#d97706', LOCK:'#059669', UNLOCK:'#0891b2' },
+  ops: { READ:'#0071e3', WRITE:'#d97706', LOCK:'#059669', UNLOCK:'#0891b2', WAIT:'#9333ea', SIGNAL:'#c026d3' },
   race: '#dc2626'
 };
 const PALETTE_DARK = {
   threads: ['#60a5fa', '#38bdf8', '#f87171', '#fbbf24', '#34d399', '#fb7185'],
-  ops: { READ:'#60a5fa', WRITE:'#fbbf24', LOCK:'#34d399', UNLOCK:'#22d3ee' },
+  ops: { READ:'#60a5fa', WRITE:'#fbbf24', LOCK:'#34d399', UNLOCK:'#22d3ee', WAIT:'#c084fc', SIGNAL:'#e879f9' },
   race: '#ff453a'
 };
 
@@ -394,12 +394,12 @@ function renderThreads() {
         <span class="op-drag-handle" title="Drag to reorder">⠿</span>
         <span class="op-type-badge badge-${op.type.toLowerCase()}">${op.type[0]}</span>
         <select class="op-type-select" onchange="updateOp('${thread.id}',${i},'type',this.value)">
-          ${['READ','WRITE','LOCK','UNLOCK'].map(t =>
+          ${['READ','WRITE','LOCK','UNLOCK','WAIT','SIGNAL'].map(t =>
             `<option value="${t}" ${op.type===t?'selected':''}>${t}</option>`
           ).join('')}
         </select>
         <input class="op-target-input${!op.target.trim() ? ' invalid' : ''}" type="text" value="${op.target}"
-          placeholder="${op.type==='LOCK'||op.type==='UNLOCK'?'lock name (e.g. mutex)':'variable (e.g. counter)'}"
+          placeholder="${['LOCK','UNLOCK','WAIT','SIGNAL'].includes(op.type)?'lock/semaphore name':'variable (e.g. counter)'}"
           onchange="updateOp('${thread.id}',${i},'target',this.value)"
           oninput="updateOp('${thread.id}',${i},'target',this.value)" />
         <button class="btn-delete-op" onclick="deleteOp('${thread.id}',${i})" title="Remove operation">✕</button>
@@ -522,6 +522,7 @@ function toggleTheme() {
   if (typeof renderTimeline === 'function') renderTimeline(); // Redraw
   if (typeof renderHeatmap === 'function') renderHeatmap();
   if (typeof renderReport === 'function') renderReport();
+  if (typeof renderCode === 'function') renderCode();
 }
 
 function updateThemeButton() {
@@ -619,6 +620,7 @@ function runDetection() {
   renderTimeline();
   renderHeatmap();
   renderReport();
+  renderCode();
 
   // Scroll to results
   setTimeout(() => scrollToSection('results-section'), 250);
@@ -1075,4 +1077,116 @@ function showToast(msg, type = '') {
 
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3800);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXPORT & CODE GEN
+// ══════════════════════════════════════════════════════════════════════════════
+function exportReport() {
+  if (!detectionResult) { showToast('No results to export. Run detection first.', 'error'); return; }
+  const { races, safePairs, variables, threads } = detectionResult;
+  let md = `# RaceGuard Analysis Report\n\n`;
+  md += `## Summary\n- Threads: ${threads.length}\n- Shared Variables: ${variables.length}\n- Races Found: ${races.length}\n- Safe Pairs: ${safePairs.length}\n\n`;
+  
+  if (races.length === 0) {
+    md += `✅ No race conditions detected. The program is race-free under the Eraser/Lockset model.\n`;
+  } else {
+    md += `## Race Conditions\n`;
+    races.forEach((r, i) => {
+      md += `### ${i+1}. ${r.type} Race on \`${r.variable}\` (${r.severity.toUpperCase()})\n`;
+      md += `**Description:** ${r.description}\n`;
+      md += `- **${r.opA.thread.name}** executes \`${r.opA.op.type}\` holding: [${r.opA.lockSet.length ? r.opA.lockSet.join(', ') : 'none'}]\n`;
+      md += `- **${r.opB.thread.name}** executes \`${r.opB.op.type}\` holding: [${r.opB.lockSet.length ? r.opB.lockSet.join(', ') : 'none'}]\n`;
+      md += `**Fix Suggestion:** ${generateFixSuggestion(r).replace(/<[^>]*>?/gm, '')}\n\n`;
+    });
+  }
+  
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'raceguard_report.md';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Report downloaded as Markdown', 'success');
+}
+
+function renderCode() {
+  const lang = document.getElementById('code-lang-select');
+  if (!lang) return;
+  const el = document.getElementById('code-content');
+  if (!uiThreads || uiThreads.length === 0) { el.textContent = '// Add threads to generate code'; return; }
+  
+  const vars = new Set();
+  const locks = new Set();
+  const semas = new Set();
+  uiThreads.forEach(t => t.ops.forEach(op => {
+    if (op.type === 'READ' || op.type === 'WRITE') vars.add(op.target);
+    else if (op.type === 'LOCK' || op.type === 'UNLOCK') locks.add(op.target);
+    else if (op.type === 'WAIT' || op.type === 'SIGNAL') semas.add(op.target);
+  }));
+
+  let code = '';
+  if (lang.value === 'c') {
+    code += `#include <stdio.h>\n#include <pthread.h>\n#include <semaphore.h>\n\n`;
+    if (vars.size > 0) code += `// Shared Variables\n` + [...vars].map(v => `int ${v.replace(/[^a-zA-Z0-9_]/g,'')} = 0;\n`).join('') + '\n';
+    if (locks.size > 0) code += `// Mutexes\n` + [...locks].map(l => `pthread_mutex_t ${l.replace(/[^a-zA-Z0-9_]/g,'')} = PTHREAD_MUTEX_INITIALIZER;\n`).join('') + '\n';
+    if (semas.size > 0) code += `// Semaphores\n` + [...semas].map(s => `sem_t ${s.replace(/[^a-zA-Z0-9_]/g,'')};\n`).join('') + '\n';
+    
+    uiThreads.forEach((t, i) => {
+      const funcName = t.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + `_func`;
+      code += `void* ${funcName}(void* arg) {\n`;
+      t.ops.forEach(op => {
+        const tgt = op.target.replace(/[^a-zA-Z0-9_]/g,'');
+        if (op.type === 'READ') code += `    int temp = ${tgt}; // READ\n`;
+        else if (op.type === 'WRITE') code += `    ${tgt}++; // WRITE\n`;
+        else if (op.type === 'LOCK') code += `    pthread_mutex_lock(&${tgt});\n`;
+        else if (op.type === 'UNLOCK') code += `    pthread_mutex_unlock(&${tgt});\n`;
+        else if (op.type === 'WAIT') code += `    sem_wait(&${tgt});\n`;
+        else if (op.type === 'SIGNAL') code += `    sem_post(&${tgt});\n`;
+      });
+      code += `    return NULL;\n}\n\n`;
+    });
+    
+    code += `int main() {\n`;
+    if (semas.size > 0) [...semas].forEach(s => code += `    sem_init(&${s.replace(/[^a-zA-Z0-9_]/g,'')}, 0, 1);\n`);
+    uiThreads.forEach((t, i) => code += `    pthread_t t${i};\n`);
+    uiThreads.forEach((t, i) => {
+      const funcName = t.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + `_func`;
+      code += `    pthread_create(&t${i}, NULL, ${funcName}, NULL);\n`;
+    });
+    uiThreads.forEach((t, i) => code += `    pthread_join(t${i}, NULL);\n`);
+    code += `    return 0;\n}`;
+  } else if (lang.value === 'py') {
+    code += `import threading\n\n`;
+    if (vars.size > 0) code += `# Shared Variables\n` + [...vars].map(v => `${v.replace(/[^a-zA-Z0-9_]/g,'')} = 0\n`).join('') + '\n';
+    if (locks.size > 0) code += `# Locks\n` + [...locks].map(l => `${l.replace(/[^a-zA-Z0-9_]/g,'')} = threading.Lock()\n`).join('') + '\n';
+    if (semas.size > 0) code += `# Semaphores\n` + [...semas].map(s => `${s.replace(/[^a-zA-Z0-9_]/g,'')} = threading.Semaphore(1)\n`).join('') + '\n';
+    
+    uiThreads.forEach((t, i) => {
+      const funcName = t.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + `_func`;
+      code += `def ${funcName}():\n`;
+      if (vars.size > 0) code += `    global ${[...vars].map(v=>v.replace(/[^a-zA-Z0-9_]/g,'')).join(', ')}\n`;
+      t.ops.forEach(op => {
+        const tgt = op.target.replace(/[^a-zA-Z0-9_]/g,'');
+        if (op.type === 'READ') code += `    temp = ${tgt} # READ\n`;
+        else if (op.type === 'WRITE') code += `    ${tgt} += 1 # WRITE\n`;
+        else if (op.type === 'LOCK') code += `    ${tgt}.acquire()\n`;
+        else if (op.type === 'UNLOCK') code += `    ${tgt}.release()\n`;
+        else if (op.type === 'WAIT') code += `    ${tgt}.acquire()\n`;
+        else if (op.type === 'SIGNAL') code += `    ${tgt}.release()\n`;
+      });
+      if (t.ops.length === 0 && vars.size === 0) code += `    pass\n`;
+      code += `\n`;
+    });
+    
+    uiThreads.forEach((t, i) => {
+      const funcName = t.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + `_func`;
+      code += `    t${i} = threading.Thread(target=${funcName})\n`;
+    });
+    uiThreads.forEach((t, i) => code += `    t${i}.start()\n`);
+    uiThreads.forEach((t, i) => code += `    t${i}.join()\n`);
+  }
+  
+  el.textContent = code;
 }
