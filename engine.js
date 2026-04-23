@@ -31,7 +31,7 @@ class RaceDetectionEngine {
     return [...s].sort();
   }
 
-  // Eraser algorithm: compute the set of locks held when each op executes
+  
   computeLockSets() {
     const map = {};
     for (const thread of this.threads) {
