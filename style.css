@@ -109,7 +109,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Background mesh */
 body::before { content: ''; }
 
 /* Scrollbar */
