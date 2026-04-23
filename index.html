@@ -345,6 +345,7 @@
           <button class="tab-btn active" id="tab-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
           <button class="tab-btn" id="tab-heatmap" onclick="switchTab('heatmap')">🔥 Heatmap</button>
           <button class="tab-btn" id="tab-report" onclick="switchTab('report')">📋 Report</button>
+          <button class="tab-btn" id="tab-code" onclick="switchTab('code')">💻 Code</button>
         </div>
 
         <!-- ── TIMELINE TAB ── -->
@@ -401,15 +402,37 @@
 
         <!-- ── REPORT TAB ── -->
         <div class="tab-content" id="content-report">
-          <div class="tab-explain">
-            <strong>Race Condition Report:</strong> Detailed breakdown of every conflicting pair.
-            <span class="text-danger">CRITICAL</span> = Write-Write (guaranteed data corruption),
-            <span class="text-warning">WARNING</span> = Read-Write (possible stale reads).
-            <span class="text-success">SAFE</span> pairs are protected by a common mutex.
-            Each race card includes a <strong>fix suggestion</strong>.
+          <div class="tab-explain" style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <strong>Race Condition Report:</strong> Detailed breakdown of every conflicting pair.
+              <span class="text-danger">CRITICAL</span> = Write-Write (guaranteed data corruption),
+              <span class="text-warning">WARNING</span> = Read-Write (possible stale reads).
+              <span class="text-success">SAFE</span> pairs are protected by a common mutex.
+              Each race card includes a <strong>fix suggestion</strong>.
+            </div>
+            <button class="btn-detect" style="font-size:12px; padding:6px 12px;" onclick="exportReport()">📥 Export</button>
           </div>
           <div class="report-container" id="report-container">
             <div id="report-content" class="hidden"></div>
+          </div>
+        </div>
+
+        <!-- ── CODE TAB ── -->
+        <div class="tab-content" id="content-code">
+          <div class="tab-explain" style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <strong>Code Snippet Generator:</strong> See how your visual thread design translates
+              into real, runnable concurrent code. Copy this code to test it on your local machine.
+            </div>
+            <div style="display:flex; gap:8px;">
+              <select id="code-lang-select" class="op-type-select" style="width:120px;" onchange="renderCode()">
+                <option value="c">POSIX C (pthreads)</option>
+                <option value="py">Python</option>
+              </select>
+            </div>
+          </div>
+          <div class="report-container" style="background:#1e1e1e; padding:16px; border-radius:var(--r); overflow-x:auto;">
+            <pre id="code-content" style="font-family:var(--mono); font-size:13px; color:#d4d4d4; margin:0; line-height:1.5;"></pre>
           </div>
         </div>
       </div>
