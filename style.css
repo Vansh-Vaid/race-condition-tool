@@ -1,3 +1,10 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   RaceGuard Design System — Ultimate Responsive Edition
+   Font: Inter (body), JetBrains Mono (code)
+   Layout: Vertical scroll, fully responsive, 5 breakpoints
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────────── */
 :root {
   --bg:         #f5f5f7;
   --bg-raised:  #ffffff;
@@ -25,6 +32,8 @@
   --op-write:   #ff9500;
   --op-lock:    #34c759;
   --op-unlock:  #30b0c7;
+  --op-wait:    #a855f7;
+  --op-signal:  #d946ef;
 
   --tc0:#0071e3;--tc1:#5ac8fa;--tc2:#ff3b30;
   --tc3:#ff9500;--tc4:#34c759;--tc5:#ff2d55;
@@ -77,6 +86,8 @@
   --op-write:   #ff9f0a;
   --op-lock:    #32d74b;
   --op-unlock:  #66d4cf;
+  --op-wait:    #c084fc;
+  --op-signal:  #e879f9;
 
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 20px rgba(0,0,0,0.5);
@@ -712,6 +723,8 @@ select, input { font-size: 16px; } /* Prevent iOS zoom on focus */
 .badge-write   { background: rgba(251,146,60,0.15); color: var(--op-write); }
 .badge-lock    { background: rgba(74,222,128,0.15); color: var(--op-lock); }
 .badge-unlock  { background: rgba(52,211,153,0.15); color: var(--op-unlock); }
+.badge-wait    { background: rgba(168,85,247,0.15); color: var(--op-wait); }
+.badge-signal  { background: rgba(217,70,239,0.15); color: var(--op-signal); }
 
 .op-type-select, .op-target-input {
   background: var(--bg-hover); border: 1px solid var(--border);
