@@ -209,6 +209,117 @@ test('preset deadlock deadlocks', () => {
 
 test('every preset has the fields its card renders', () => {
   for (const [key, p] of Object.entries(PRESETS)) {
-    assert.ok(p.emoji && p.label && p.description, key);
+    assert.ok(p.label && p.description, key);
   }
+});
+
+// ── Execution (the lever frame drives these) ─────────────────────────────────
+function load(specs, semaphores) {
+  const engine = new RaceDetectionEngine();
+  specs.map(parse).forEach((t, i) => engine.addThread(`T${i}`, t.name, '#000000', t.operations));
+  engine.setSemaphores(semaphores);
+  return engine;
+}
+const INCREMENT = ['A: READ x, WRITE x', 'B: READ x, WRITE x'];
+const valuesOf = (engine, state) => Object.fromEntries(engine.getVariables().map((v, i) => [v, state.values[i]]));
+
+test('running the threads one after the other keeps both updates', () => {
+  const e = load(INCREMENT);
+  assert.deepEqual(valuesOf(e, e.replay([0, 0, 1, 1]).at(-1)), { x: 2 });
+});
+
+test('interleaving the reads loses an update', () => {
+  const e = load(INCREMENT);
+  assert.deepEqual(valuesOf(e, e.replay([0, 1, 0, 1]).at(-1)), { x: 1 });
+});
+
+test('a write with no prior read stores the thread number', () => {
+  const e = load(['A: WRITE x', 'B: WRITE x']);
+  assert.deepEqual(valuesOf(e, e.replay([0, 1]).at(-1)), { x: 2 });
+});
+
+test('a write based on an outdated read is stale', () => {
+  const e = load(INCREMENT);
+  const states = e.replay([0, 1, 0]);
+  assert.equal(e.isStaleWrite(states.at(-1), 1), true);
+  assert.equal(e.isStaleWrite(states[2], 0), false);
+});
+
+test('stepping does not change the state it started from', () => {
+  const e = load(INCREMENT);
+  const before = e.start();
+  const copy = JSON.stringify(before);
+  e.step(before, 0);
+  assert.equal(JSON.stringify(before), copy);
+});
+
+test('replay stops at the first step that cannot run', () => {
+  const e = load(['A: LOCK m, UNLOCK m', 'B: LOCK m, UNLOCK m']);
+  assert.equal(e.replay([0, 1, 0]).length, 2);
+  assert.equal(e.replay([0, 0, 0]).length, 3);
+});
+
+// ── Exploration ──────────────────────────────────────────────────────────────
+function explore(specs, semaphores, limit) {
+  const e = load(specs, semaphores);
+  const result = e.detect();
+  return { e, result, ...e.explore(result.races, limit) };
+}
+
+test('explore finds every ending of an unprotected counter', () => {
+  const r = explore(INCREMENT);
+  assert.deepEqual(r.outcomes.map(o => o.values), [[1], [2]]);
+  assert.equal(r.complete, true);
+});
+
+test('each ending comes with a schedule that produces it', () => {
+  const r = explore(INCREMENT);
+  for (const o of r.outcomes) assert.deepEqual(r.e.replay(o.schedule).at(-1).values, o.values);
+});
+
+test('a lock leaves one ending', () => {
+  const r = explore(['A: LOCK m, READ x, WRITE x, UNLOCK m', 'B: LOCK m, READ x, WRITE x, UNLOCK m']);
+  assert.deepEqual(r.outcomes.map(o => o.values), [[2]]);
+});
+
+test('a witness stops where both racing operations can run', () => {
+  const r = explore(INCREMENT);
+  for (const race of r.result.races) {
+    const state = r.e.replay(r.witnesses.get(race.id)).at(-1);
+    for (const side of [race.opA, race.opB]) {
+      const i = r.e.threads.indexOf(side.thread);
+      assert.equal(r.e.pending(state, i).id, side.op.id);
+      assert.ok(r.e.canRun(state, i));
+    }
+  }
+});
+
+test('a lockset false positive has no witness', () => {
+  // Taking both units of a count-2 semaphore excludes the other thread, which the lockset rule cannot see.
+  const both = name => `${name}: WAIT s, WAIT s, WRITE x, SIGNAL s, SIGNAL s`;
+  const r = explore([both('A'), both('B')], { s: 2 });
+  assert.equal(r.result.races.length, 1);
+  assert.equal(r.witnesses.size, 0);
+});
+
+test('explore finds a deadlock the round-robin schedule misses', () => {
+  const specs = ['A: READ x, READ x, READ x, LOCK m, LOCK n, UNLOCK n, UNLOCK m', 'B: LOCK n, LOCK m, UNLOCK m, UNLOCK n'];
+  const r = explore(specs);
+  assert.equal(r.result.deadlock, null);
+  assert.ok(r.deadlock);
+  assert.equal(r.e.blockedThreads(r.e.replay(r.deadlock.schedule).at(-1)).length, 2);
+});
+
+test('explore reports when it ran out of budget', () => {
+  assert.equal(explore(INCREMENT, {}, 3).complete, false);
+});
+
+test('names that collide with object properties are safe', () => {
+  const r = explore(['A: WRITE __proto__, LOCK constructor, WAIT toString', 'B: READ __proto__']);
+  assert.equal(r.result.races.length, 1);
+  assert.equal(r.complete, true);
+});
+
+test('every preset sets a challenge', () => {
+  for (const [key, p] of Object.entries(PRESETS)) assert.ok(p.challenge, key);
 });
