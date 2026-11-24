@@ -80,8 +80,8 @@ Keep this section current: when a change lands, tick or move its item, and add o
 
 ### Status
 
-Branch `fix/correctness-pass` (bug fixes) and, on top of it, `redesign/signal-box` (living train map) are
-committed locally and awaiting review. Neither is pushed, so the live site still runs the old code.
+Branch `redesign/signal-box` (bug fixes, then the redesign on top) is pushed and awaiting review. It is not
+merged, so `main` and the live site still run the old code.
 
 ### Done
 
