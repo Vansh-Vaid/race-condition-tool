@@ -7,11 +7,13 @@
   <meta name="description" content="Interactive educational tool for detecting and visualizing race conditions in concurrent multi-threaded systems using Bernstein's conditions and Lockset analysis." />
   <meta name="theme-color" content="#0a0e1a" />
 
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 
   <script>
     function initTheme() {
-      const savedTheme = localStorage.getItem('raceguard-theme');
+      let savedTheme = null;
+      try { savedTheme = localStorage.getItem('raceguard-theme'); } catch { /* storage blocked */ }
       if (savedTheme) {
         document.documentElement.setAttribute('data-theme', savedTheme);
       } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -27,7 +29,7 @@
 
 <div class="onboarding-overlay hidden" id="onboarding-overlay">
   <div class="onboarding-backdrop" onclick="closeOnboarding()"></div>
-  <div class="onboarding-card" id="onboarding-card">
+  <div class="onboarding-card" id="onboarding-card" role="dialog" aria-modal="true" aria-label="How to use RaceGuard">
     <button class="onboarding-close" onclick="closeOnboarding()" aria-label="Close">&times;</button>
     <div class="onboarding-slides" id="onboarding-slides">
       <!-- Slide 1 -->
@@ -44,7 +46,7 @@
       <div class="onboarding-slide" data-slide="1">
         <div class="onboarding-emoji">🛠</div>
         <h2>Step 1 — Design Your Threads</h2>
-        <p>Create threads and add <strong>READ</strong>, <strong>WRITE</strong>, <strong>LOCK</strong>, and <strong>UNLOCK</strong> operations on shared variables. You can also load a <strong>preset scenario</strong> to get started quickly.</p>
+        <p>Create threads and add <strong>READ</strong>, <strong>WRITE</strong>, <strong>LOCK</strong>/<strong>UNLOCK</strong>, and <strong>WAIT</strong>/<strong>SIGNAL</strong> operations. You can also load a <strong>preset scenario</strong> to get started quickly.</p>
         <div class="onboarding-highlight">
           <span class="chip chip-cyan">Drag to reorder operations</span>
           <span class="chip chip-green">Use presets for examples</span>
@@ -54,7 +56,7 @@
       <div class="onboarding-slide" data-slide="2">
         <div class="onboarding-emoji">📊</div>
         <h2>Step 2 — Detect & Analyze</h2>
-        <p>Hit <strong>"Detect Race Conditions"</strong> and the engine applies Bernstein's Conditions to find conflicts, then runs the Lockset/Eraser algorithm to check for mutex protection.</p>
+        <p>Hit <strong>"Detect Race Conditions"</strong> and the engine applies Bernstein's Conditions to find conflicts, runs the Lockset/Eraser algorithm to check for mutex protection, then checks semaphore ordering.</p>
         <div class="onboarding-highlight">
           <span class="chip chip-purple">Timeline visualization</span>
           <span class="chip chip-blue">Memory heatmap</span>
@@ -78,7 +80,7 @@
 
 <!-- ═══ MOBILE DRAWER ════════════════════════════════════════════════════ -->
 <div class="drawer-backdrop hidden" id="drawer-backdrop" onclick="closeDrawer()"></div>
-<nav class="mobile-drawer hidden" id="mobile-drawer" role="navigation" aria-label="Mobile navigation">
+<nav class="mobile-drawer hidden" id="mobile-drawer" inert role="navigation" aria-label="Mobile navigation">
   <div class="drawer-header">
     <div class="logo">
       <div class="logo-icon">⚡</div>
@@ -142,14 +144,14 @@
     </button>
   </nav>
   <div class="header-actions">
-    <button class="btn-reset" id="btn-theme" onclick="toggleTheme()" style="margin-right:4px;">🌙 Dark</button>
+    <button class="btn-reset btn-theme" id="btn-theme" onclick="toggleTheme()" style="margin-right:4px;">🌙 Dark</button>
     <button class="btn-reset" id="btn-reset" onclick="resetAll()">↺ Reset</button>
     <button class="btn-detect" id="btn-detect" onclick="runDetection()">▶ Detect Races</button>
   </div>
 </header>
 
 <!-- ═══ MAIN SCROLLABLE CONTENT ══════════════════════════════════════════ -->
-<div class="app-body" id="app-body">
+<main class="app-body" id="app-body">
 
   <!-- ── HERO / INTRO ───────────────────────────────────────────────── -->
   <section class="hero" id="hero-section">
@@ -194,31 +196,8 @@
         <h2 class="section-label">📦 Quick Start Presets</h2>
         <p class="section-hint">Select a preset scenario to auto-populate threads, or build your own below.</p>
       </div>
-      <div class="presets-grid">
-        <button class="preset-card" id="preset-counter" onclick="loadPreset('counter')">
-          <span class="preset-emoji">🔢</span>
-          <span class="preset-name">Counter++</span>
-          <span class="preset-desc">Two threads increment a shared counter without sync.</span>
-          <span class="preset-tag">2 threads · 4 ops</span>
-        </button>
-        <button class="preset-card" id="preset-bank" onclick="loadPreset('bank')">
-          <span class="preset-emoji">🏦</span>
-          <span class="preset-name">Bank Transfer</span>
-          <span class="preset-desc">Sender uses mutex, receiver doesn't — partial protection.</span>
-          <span class="preset-tag">2 threads · 6 ops</span>
-        </button>
-        <button class="preset-card" id="preset-producer" onclick="loadPreset('producer')">
-          <span class="preset-emoji">📦</span>
-          <span class="preset-name">Producer/Consumer</span>
-          <span class="preset-desc">Unsynchronized buffer and count access.</span>
-          <span class="preset-tag">2 threads · 5 ops</span>
-        </button>
-        <button class="preset-card" id="preset-rw" onclick="loadPreset('rw')">
-          <span class="preset-emoji">📖</span>
-          <span class="preset-name">Reader/Writer</span>
-          <span class="preset-desc">One writer and two readers with no locking.</span>
-          <span class="preset-tag">3 threads · 5 ops</span>
-        </button>
+      <div class="presets-grid" id="presets-grid">
+        <!-- Cards injected from PRESETS by ui.js -->
       </div>
     </div>
   </section>
@@ -236,7 +215,7 @@
         </button>
       </div>
       <div class="section-explain-card">
-        <div class="explain-header" onclick="toggleExplain('design-explain')">
+        <div class="explain-header" role="button" tabindex="0" aria-expanded="true" aria-controls="design-explain" onclick="toggleExplain('design-explain')">
           <span class="explain-icon">💡</span>
           <span class="explain-title">What's happening here?</span>
           <span class="explain-toggle" id="toggle-design-explain">▼</span>
@@ -264,13 +243,21 @@
               <span class="op-badge badge-unlock">UNLOCK</span>
               <span>Release a mutex lock (e.g., <code>pthread_mutex_unlock(&m)</code>)</span>
             </div>
+            <div class="explain-op">
+              <span class="op-badge badge-wait">WAIT</span>
+              <span>Take a unit from a semaphore, blocking at zero (e.g., <code>sem_wait(&s)</code>)</span>
+            </div>
+            <div class="explain-op">
+              <span class="op-badge badge-signal">SIGNAL</span>
+              <span>Add a unit to a semaphore (e.g., <code>sem_post(&s)</code>)</span>
+            </div>
           </div>
           <div style="margin-top:14px; padding:14px; background:var(--bg-hover); border-radius:var(--r); font-size:13px; line-height:1.6; border-left:3px solid var(--accent);">
             <strong style="color:var(--text);">💡 Why do we need shared variables?</strong><br>
             Threads execute concurrently and communicate exclusively via shared memory. By specifying a target variable (e.g., <code>balance</code>), you map which specific memory address is being accessed by multiple threads simultaneously.
           </div>
           <p class="explain-note" style="margin-top:14px;">
-            A <strong style="color:var(--warning);">race condition</strong> occurs when two threads access the exact same variable concurrently, and at least one is a write operation — running without holding a <strong>common synchronization lock</strong>. Use the designer below to simulate executions.
+            A <strong style="color:var(--warning);">race condition</strong> occurs when two threads access the exact same variable concurrently, and at least one is a write operation — without a <strong>common lock</strong> or any ordering between them. Use the designer below to simulate executions.
           </p>
         </div>
       </div>
@@ -300,7 +287,7 @@
       <button class="btn-detect-large" id="btn-detect-large" onclick="runDetection()">
         <span class="detect-icon">⚡</span>
         <span class="detect-text">Detect Race Conditions</span>
-        <span class="detect-sub">Runs Bernstein's Conditions + Lockset Analysis on the fly</span>
+        <span class="detect-sub">Runs Bernstein's Conditions + Lockset + Happens-Before</span>
       </button>
       <p class="cta-hint">Or press <kbd>Enter</kbd> to run detection</p>
     </div>
@@ -341,22 +328,22 @@
 
       <!-- TABS -->
       <div class="tabs-container">
-        <div class="tabs-header">
-          <button class="tab-btn active" id="tab-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
-          <button class="tab-btn" id="tab-heatmap" onclick="switchTab('heatmap')">🔥 Heatmap</button>
-          <button class="tab-btn" id="tab-report" onclick="switchTab('report')">📋 Report</button>
-          <button class="tab-btn" id="tab-code" onclick="switchTab('code')">💻 Code</button>
+        <div class="tabs-header" role="tablist">
+          <button class="tab-btn active" id="tab-timeline" role="tab" aria-selected="true" aria-controls="content-timeline" onclick="switchTab('timeline')">⏱ Timeline</button>
+          <button class="tab-btn" id="tab-heatmap" role="tab" aria-selected="false" aria-controls="content-heatmap" onclick="switchTab('heatmap')">🔥 Heatmap</button>
+          <button class="tab-btn" id="tab-report" role="tab" aria-selected="false" aria-controls="content-report" onclick="switchTab('report')">📋 Report</button>
+          <button class="tab-btn" id="tab-code" role="tab" aria-selected="false" aria-controls="content-code" onclick="switchTab('code')">💻 Code</button>
         </div>
 
         <!-- ── TIMELINE TAB ── -->
-        <div class="tab-content active" id="content-timeline">
+        <div class="tab-content active" id="content-timeline" role="tabpanel" aria-labelledby="tab-timeline">
           <div class="tab-explain">
             <strong>Execution Timeline:</strong> Shows how operations from different threads
             interleave in time. Operations involved in a race are highlighted in <span class="text-danger">red</span>.
             Dashed arcs connect conflicting pairs. Use step controls to walk through each operation.
           </div>
           <div class="tab-explain" style="background:var(--bg-hover); border-color:var(--info); margin-top:12px; border-radius:var(--r);">
-            <strong style="color:var(--text);">💡 Visualizing Temporal Dependencies:</strong> This timeline graphs time linearly from left to right, while stacking threads vertically. <em>Dashed lines</em> indicate conflicting operations across threads. If two actions intersect vertically across a dashed conflict without holding the exact same active lock, the execution pathway explicitly guarantees a data race.
+            <strong style="color:var(--text);">💡 Visualizing Temporal Dependencies:</strong> Time runs left to right and each thread has its own row. This is one possible schedule: threads take turns, and a thread waits when a lock or semaphore blocks it. <em>Dashed arcs</em> join conflicting operations that no lock or ordering protects, so another schedule could run them at the same time.
           </div>
           <div class="timeline-controls" id="timeline-controls">
             <div class="step-controls hidden" id="step-controls">
@@ -371,6 +358,8 @@
               <span class="legend-item"><span class="legend-dot write"></span>WRITE</span>
               <span class="legend-item"><span class="legend-dot lock"></span>LOCK</span>
               <span class="legend-item"><span class="legend-dot unlock"></span>UNLOCK</span>
+              <span class="legend-item"><span class="legend-dot wait"></span>WAIT</span>
+              <span class="legend-item"><span class="legend-dot signal"></span>SIGNAL</span>
               <span class="legend-item"><span class="legend-dot race"></span>RACE</span>
             </div>
           </div>
@@ -385,15 +374,15 @@
         </div>
 
         <!-- ── HEATMAP TAB ── -->
-        <div class="tab-content" id="content-heatmap">
+        <div class="tab-content" id="content-heatmap" role="tabpanel" aria-labelledby="tab-heatmap">
           <div class="tab-explain">
             <strong>Memory Access Heatmap:</strong> A grid showing which threads access which
             shared variables at each time step. Cells with <span class="text-danger">red borders</span>
-            indicate race windows where conflicting accesses happen without lock protection.
+            mark accesses that conflict with another thread and have no lock or ordering to protect them.
             Hover over cells for details.
           </div>
           <div class="tab-explain" style="background:var(--bg-hover); border-color:var(--danger); margin-top:12px; border-radius:var(--r);">
-            <strong style="color:var(--text);">⚠️ Memory Access Density:</strong> The Heatmap shifts perspective from <em>Time</em> to <em>Memory</em> architecture. It instantly spotlights overloaded shared memory addresses. Heavily occupied rows signify severe concurrency bottlenecks. Data cells surrounded by a pulsing red border identify exact intervals where lock coverage fails.
+            <strong style="color:var(--text);">⚠️ Memory Access Density:</strong> The Heatmap shifts perspective from <em>Time</em> to <em>Memory</em> architecture. Busy rows are variables that many operations share. Cells with a pulsing red border are accesses involved in a possible race.
           </div>
           <div class="heatmap-container" id="heatmap-container">
             <div id="heatmap-grid" class="heatmap-grid hidden"></div>
@@ -401,16 +390,16 @@
         </div>
 
         <!-- ── REPORT TAB ── -->
-        <div class="tab-content" id="content-report">
-          <div class="tab-explain" style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
+        <div class="tab-content" id="content-report" role="tabpanel" aria-labelledby="tab-report">
+          <div class="tab-explain" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:flex-start;">
+            <div style="flex:1 1 220px;">
               <strong>Race Condition Report:</strong> Detailed breakdown of every conflicting pair.
-              <span class="text-danger">CRITICAL</span> = Write-Write (guaranteed data corruption),
+              <span class="text-danger">CRITICAL</span> = Write-Write (possible lost update),
               <span class="text-warning">WARNING</span> = Read-Write (possible stale reads).
-              <span class="text-success">SAFE</span> pairs are protected by a common mutex.
+              <span class="text-success">SAFE</span> pairs are protected by a common lock or ordered by a semaphore.
               Each race card includes a <strong>fix suggestion</strong>.
             </div>
-            <button class="btn-detect" style="font-size:12px; padding:6px 12px;" onclick="exportReport()">📥 Export</button>
+            <button class="btn-detect" style="font-size:12px; padding:6px 12px; flex-shrink:0;" onclick="exportReport()">📥 Export</button>
           </div>
           <div class="report-container" id="report-container">
             <div id="report-content" class="hidden"></div>
@@ -418,14 +407,14 @@
         </div>
 
         <!-- ── CODE TAB ── -->
-        <div class="tab-content" id="content-code">
-          <div class="tab-explain" style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
+        <div class="tab-content" id="content-code" role="tabpanel" aria-labelledby="tab-code">
+          <div class="tab-explain" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:flex-start;">
+            <div style="flex:1 1 220px;">
               <strong>Code Snippet Generator:</strong> See how your visual thread design translates
               into real, runnable concurrent code. Copy this code to test it on your local machine.
             </div>
             <div style="display:flex; gap:8px;">
-              <select id="code-lang-select" class="op-type-select" style="width:120px;" onchange="renderCode()">
+              <select id="code-lang-select" aria-label="Language" class="op-type-select" style="width:120px;" onchange="renderCode()">
                 <option value="c">POSIX C (pthreads)</option>
                 <option value="py">Python</option>
               </select>
@@ -448,7 +437,7 @@
       <div class="learn-grid">
         <!-- Card 1: What is a Race Condition? -->
         <div class="learn-card" id="learn-race">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-race')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-race')">
             <div class="learn-card-icon">⚠️</div>
             <h3>What is a Race Condition?</h3>
             <span class="learn-toggle">▼</span>
@@ -467,7 +456,7 @@
 
         <!-- Card 2: Bernstein's Conditions -->
         <div class="learn-card" id="learn-bernstein">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-bernstein')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-bernstein')">
             <div class="learn-card-icon">📐</div>
             <h3>Bernstein's Conditions</h3>
             <span class="learn-toggle">▼</span>
@@ -486,7 +475,7 @@
 
         <!-- Card 3: Lockset / Eraser -->
         <div class="learn-card" id="learn-lockset">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-lockset')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-lockset')">
             <div class="learn-card-icon">🔒</div>
             <h3>Lockset / Eraser Algorithm</h3>
             <span class="learn-toggle">▼</span>
@@ -497,15 +486,17 @@
             <ul>
               <li>Compute the <strong>lock set</strong> of each operation (all locks held at that point)</li>
               <li>If the lock sets have a <strong>non-empty intersection</strong> → protected (no race)</li>
-              <li>If the lock sets have <strong>no common lock</strong> → unprotected → <span class="text-danger">RACE!</span></li>
+              <li>If the lock sets have <strong>no common lock</strong> → <span class="text-danger">possible race</span>, unless a semaphore orders them</li>
             </ul>
-            <p>This is a conservative (may report false positives) but effective technique used in real-world race detectors.</p>
+            <p>A semaphore that starts at <strong>1</strong> and is used as WAIT…SIGNAL counts as a lock. One that starts at <strong>0</strong>
+              forces an order: whatever a thread does before SIGNAL happens before whatever another does after the WAIT it releases.</p>
+            <p>Lockset analysis is conservative: it reports pairs that <em>could</em> overlap, so some reports may be false positives.</p>
           </div>
         </div>
 
         <!-- Card 4: Race Types -->
         <div class="learn-card" id="learn-severity">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-severity')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-severity')">
             <div class="learn-card-icon">🏷️</div>
             <h3>Race Severity Levels</h3>
             <span class="learn-toggle">▼</span>
@@ -515,7 +506,7 @@
               <div class="severity-row critical">
                 <span class="sev-badge sev-critical">CRITICAL</span>
                 <span class="sev-type">Write-Write (WW)</span>
-                <span class="sev-desc">Both threads write — guaranteed data corruption</span>
+                <span class="sev-desc">Both threads write — an update may be lost</span>
               </div>
               <div class="severity-row warning">
                 <span class="sev-badge sev-warning">WARNING</span>
@@ -524,8 +515,8 @@
               </div>
               <div class="severity-row safe">
                 <span class="sev-badge sev-safe">SAFE</span>
-                <span class="sev-type">Protected by mutex</span>
-                <span class="sev-desc">Common lock ensures mutual exclusion — no race</span>
+                <span class="sev-type">Protected or ordered</span>
+                <span class="sev-desc">A common lock or semaphore ordering prevents overlap</span>
               </div>
             </div>
           </div>
@@ -533,7 +524,7 @@
 
         <!-- Card 5: How to fix -->
         <div class="learn-card" id="learn-fix">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-fix')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-fix')">
             <div class="learn-card-icon">🛡️</div>
             <h3>How to Fix Race Conditions</h3>
             <span class="learn-toggle">▼</span>
@@ -556,17 +547,19 @@
 
         <!-- Card 6: Operations Guide -->
         <div class="learn-card" id="learn-ops">
-          <div class="learn-card-header" onclick="toggleLearnCard('learn-ops')">
+          <div class="learn-card-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleLearnCard('learn-ops')">
             <div class="learn-card-icon">📝</div>
             <h3>Operation Types Guide</h3>
             <span class="learn-toggle">▼</span>
           </div>
           <div class="learn-card-body expanded">
             <div class="ops-guide">
-              <div class="ops-row"><span class="op-badge badge-read">READ</span> Read from a shared variable (e.g., <code>temp = counter</code>)</div>
-              <div class="ops-row"><span class="op-badge badge-write">WRITE</span> Write to a shared variable (e.g., <code>counter = temp + 1</code>)</div>
-              <div class="ops-row"><span class="op-badge badge-lock">LOCK</span> Acquire a mutex lock (e.g., <code>pthread_mutex_lock(&m)</code>)</div>
-              <div class="ops-row"><span class="op-badge badge-unlock">UNLOCK</span> Release a mutex lock (e.g., <code>pthread_mutex_unlock(&m)</code>)</div>
+              <div class="ops-row"><span class="op-badge badge-read">READ</span><span>Read from a shared variable (e.g., <code>temp = counter</code>)</span></div>
+              <div class="ops-row"><span class="op-badge badge-write">WRITE</span><span>Write to a shared variable (e.g., <code>counter = temp + 1</code>)</span></div>
+              <div class="ops-row"><span class="op-badge badge-lock">LOCK</span><span>Acquire a mutex lock (e.g., <code>pthread_mutex_lock(&m)</code>)</span></div>
+              <div class="ops-row"><span class="op-badge badge-unlock">UNLOCK</span><span>Release a mutex lock (e.g., <code>pthread_mutex_unlock(&m)</code>)</span></div>
+              <div class="ops-row"><span class="op-badge badge-wait">WAIT</span><span>Take a unit from a semaphore, blocking at zero (e.g., <code>sem_wait(&s)</code>)</span></div>
+              <div class="ops-row"><span class="op-badge badge-signal">SIGNAL</span><span>Add a unit to a semaphore (e.g., <code>sem_post(&s)</code>)</span></div>
             </div>
           </div>
         </div>
@@ -574,12 +567,12 @@
     </div>
   </section>
 
+</main><!-- /app-body -->
+
   <!-- ── FOOTER ─────────────────────────────────────────────────────── -->
   <footer class="app-footer">
     <p>RaceGuard — System Debugging Utility · Built with Bernstein's Conditions & Eraser/Lockset Algorithm</p>
   </footer>
-
-</div><!-- /app-body -->
 
 <!-- FAB Help Button -->
 <button class="fab-help" id="fab-help" onclick="showOnboarding()" aria-label="Help" title="How to use RaceGuard">
@@ -597,6 +590,7 @@
 <button class="scroll-top hidden" id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Scroll to top">↑</button>
 
 <script src="engine.js"></script>
+<script src="codegen.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>
