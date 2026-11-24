@@ -216,3 +216,19 @@ test('one ending with live conflicts is not described as order-independent', () 
   assert.match(views.endingsView(presetModel('rw')), /different values on the way/);
   assert.match(views.endingsView(presetModel('signal')), /does not change the result/);
 });
+
+test('a train carries the token of each lock it holds', () => {
+  const l = views.mapLayout(modelOf(design(['A: LOCK m, UNLOCK m', 'B: READ x']), { schedule: [0, 1, 0], cursor: 1 }), 900);
+  assert.deepEqual(l.threads.map(th => th.tokens), [['m'], []]);
+});
+
+test('the map fills the height it is given, and grows past it when it must', () => {
+  assert.equal(views.mapLayout(modelOf(design(INCREMENT)), 900, 620).height, 620);
+  const many = modelOf(design(['A: READ a, READ b, READ c, READ d, READ e, READ f', 'B: READ a']));
+  assert.ok(views.mapLayout(many, 900, 500).height > 500);
+});
+
+test('only a conflicting pair is ringed as dangerous', () => {
+  assert.doesNotMatch(views.stopAttrs(presetModel('counter', { pair: 'race-0' }), 0, 0).className, /is-safe/);
+  assert.match(views.stopAttrs(presetModel('signal', { pair: 'safe-0' }), 0, 0).className, /is-pair is-safe/);
+});

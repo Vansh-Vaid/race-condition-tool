@@ -1,7 +1,7 @@
 // Physical levers: drag one across, click it, or press its number. Elements persist between updates so a
 // drag is never interrupted by a re-render.
 const Levers = (() => {
-  const REST = -30, PULLED = 30;
+  const REST = -24, PULLED = 26;
   let host, onPull, dragging = null, suppressClick = false;
   const levers = [];
 
@@ -9,11 +9,14 @@ const Levers = (() => {
     const el = document.createElement('button');
     el.type = 'button';
     el.id = `lever-${t}`;
-    el.innerHTML = `<svg viewBox="0 0 150 118" aria-hidden="true">
-        <path class="quadrant" d="M17 110a60 60 0 0 1 116 0z"/>
-        <g class="arm"><rect class="shaft" x="69" y="30" width="12" height="78" rx="6"/><rect class="grip" x="62" y="4" width="26" height="46" rx="13"/></g>
-        <circle class="pivot" cx="75" cy="106" r="9"/><path class="bolt" d="M30 66l34 12"/></svg>
-      <span class="lever-text"><b class="lever-num"></b><span class="lever-name"></span><span class="lever-status"></span></span>`;
+    el.innerHTML = `<svg viewBox="0 0 150 168" aria-hidden="true">
+        <path class="quadrant" d="M13 150a64 64 0 0 1 124 0z"/><path class="notches" d="M30 108l8 8M43 96l6 9M107 96l-6 9M120 108l-8 8"/>
+        <path class="slot" d="M34 128a52 52 0 0 1 82 0"/>
+        <g class="arm"><path class="shaft" d="M70 46h10l3 100H67z"/><path class="shaft-shine" d="M73 48l-1.5 96"/>
+          <rect class="collar" x="62" y="72" width="26" height="36" rx="4"/><text class="collar-num" x="75" y="98"></text>
+          <path class="catch" d="M85 10c9 4 9 22 1 30"/><rect class="grip" x="64" y="4" width="22" height="46" rx="10"/><path class="grip-shine" d="M69 13v26"/></g>
+        <path class="floor" d="M8 150h134v10a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4z"/><path class="bolt" d="M24 96l46 18"/></svg>
+      <span class="lever-text"><span class="lever-name"></span><span class="lever-status"></span></span>`;
     const lever = { el, t, arm: el.querySelector('.arm'), state: null };
     el.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
@@ -67,7 +70,7 @@ const Levers = (() => {
       lever.state = p.state;
       lever.el.className = `lever lever-${p.state} ${inkClass(t)}${dragging && dragging.lever === lever && dragging.moved ? ' is-held' : ''}`;
       if (p.state === 'free') lever.el.removeAttribute('aria-disabled'); else lever.el.setAttribute('aria-disabled', 'true');
-      lever.el.querySelector('.lever-num').textContent = t + 1;
+      lever.el.querySelector('.collar-num').textContent = t + 1;
       lever.el.querySelector('.lever-name').textContent = clip(p.name, 18);
       lever.el.querySelector('.lever-status').textContent = clip(p.status, 40);
     });

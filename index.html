@@ -23,9 +23,10 @@
   <h1 class="nameboard">RaceGuard</h1>
   <label class="program"><span>Program</span><select id="preset"></select></label>
   <div class="tools">
+    <button type="button" id="add-thread" data-action="add-thread">Add thread</button>
     <button type="button" id="undo" data-action="undo">Undo</button>
     <button type="button" id="clear" data-action="clear">Clear</button>
-    <button type="button" id="export" data-action="export">Export report</button>
+    <button type="button" id="export" data-action="export">Export</button>
     <button type="button" id="theme" data-action="theme">Night</button>
   </div>
   <div class="annunciator" id="annunciator" role="status" aria-label="Verdict"></div>
@@ -33,9 +34,11 @@
 
 <main>
   <section class="map" id="map" aria-label="Program">
+    <svg class="land" id="map-land" aria-hidden="true"></svg>
+    <div class="platforms" id="map-platforms"></div>
     <div class="map-heads" id="map-heads"></div>
     <div class="map-scroll" id="map-scroll">
-      <div class="map-layer" id="map-layer"><svg id="map-svg" aria-hidden="true"></svg><div class="map-ticks" id="map-ticks" aria-hidden="true"></div></div>
+      <div class="map-layer" id="map-layer"><svg id="map-svg" aria-hidden="true"></svg><svg id="map-trains" aria-hidden="true"></svg><div class="map-ticks" id="map-ticks" aria-hidden="true"></div></div>
     </div>
     <div class="map-plates" id="map-plates"></div>
     <div class="popover" id="inspector" hidden></div>
@@ -43,26 +46,31 @@
 
   <div id="problems" role="alert"></div>
 
-  <section class="dock" aria-label="Scheduler">
-    <div class="dock-side">
-      <p id="challenge" class="challenge"></p>
-      <div class="transport">
-        <button type="button" id="rewind" data-action="rewind">Start over</button>
-        <button type="button" id="back" data-action="back">Back</button>
-        <button type="button" id="on" data-action="on">Step</button>
-        <button type="button" id="run" data-action="run">Run</button>
-        <button type="button" id="add-thread" data-action="add-thread">Add thread</button>
+  <div class="desk">
+    <section class="dock" aria-label="Scheduler">
+      <div class="dock-side">
+        <p class="log" id="log" aria-live="polite"></p>
+        <p id="challenge" class="challenge"></p>
+        <div class="transport">
+          <button type="button" id="rewind" data-action="rewind">Start over</button>
+          <button type="button" id="back" data-action="back">Back</button>
+          <button type="button" id="on" data-action="on">Step</button>
+          <button type="button" id="run" data-action="run">Run</button>
+        </div>
       </div>
-    </div>
-    <div class="levers" id="levers"></div>
-    <p class="log" id="log" aria-live="polite"></p>
-    <div class="sr-only" id="board"></div>
-  </section>
-
-  <div class="docket">
+      <div class="levers" id="levers"></div>
+      <div class="sr-only" id="board"></div>
+    </section>
     <section class="departures" aria-labelledby="endings-title"><h2 id="endings-title">Possible endings</h2><div id="endings"></div></section>
-    <section class="findings" aria-labelledby="register-title"><h2 id="register-title">Conflicts</h2><div id="register"></div></section>
   </div>
+
+  <div class="below">
+  <section class="findings" aria-labelledby="register-title"><h2 id="register-title">Conflicts</h2><div id="register"></div>
+    <h3>Reading the map</h3>
+    <p class="why">On the map, time runs right. A train carries the copy it read. A line that trembles is unprotected. A sheathed track is holding a lock, and its train carries the token.</p>
+    <p class="why">Why a railway? Dijkstra’s semaphore is named after the railway signal. A mutex is the token a driver must hold to enter a single line, and a deadlock is two trains facing each other, each waiting for the other’s section.</p>
+    <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> pull a lever, or drag it across. <kbd>←</kbd> <kbd>→</kbd> step. On a stop: arrows move around, <kbd>Alt</kbd>+<kbd>←</kbd> <kbd>→</kbd> reorder, <kbd>Delete</kbd> removes. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes.</p>
+  </section>
 
   <section class="listing" aria-labelledby="code-title">
     <div class="listing-head"><h2 id="code-title">As real code</h2>
@@ -73,6 +81,7 @@
       <button type="button" id="copy" data-action="copy">Copy</button></div>
     <pre id="code" tabindex="0" aria-label="Generated code"></pre>
   </section>
+  </div>
 
   <section class="rules" aria-labelledby="rules-title">
     <h2 id="rules-title">How it decides</h2>
@@ -84,9 +93,6 @@
       <div><dt>Never meet</dt><dd>The rules cannot prove it safe, but no schedule brings the two together.</dd></div>
       <div><dt>Values</dt><dd>Every variable starts at 0. A WRITE after a READ stores the copy plus 1. A WRITE on its own stores the thread’s number.</dd></div>
     </dl>
-    <p class="why">On the map, time runs right. A train carries the copy it read. A line that trembles is unprotected, and a sheathed track is holding a lock. </p>
-    <p class="why">Why a railway? Dijkstra’s semaphore is named after the railway signal. A mutex is the token a driver must hold to enter a single line, and a deadlock is two trains facing each other, each waiting for the other’s section.</p>
-    <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> pull a lever, or drag it across. <kbd>←</kbd> <kbd>→</kbd> step. On a stop: arrows move around, <kbd>Alt</kbd>+<kbd>←</kbd> <kbd>→</kbd> reorder, <kbd>Delete</kbd> removes. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes.</p>
   </section>
 </main>
 

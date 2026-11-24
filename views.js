@@ -4,7 +4,7 @@
 const OP_TYPES = ['READ', 'WRITE', 'LOCK', 'UNLOCK', 'WAIT', 'SIGNAL'];
 
 // Map geometry, in px
-const LANE = 34, STATION_PAD = 70, MAP_TOP = 40, MAP_MIN = 440, HOME_GAP = 54, STEP_MIN = 92, STEP_MAX = 190;
+const LANE = 36, STATION_PAD = 28, MAP_TOP = 40, MAP_MIN = 400, HOME_GAP = 54, STEP_MIN = 92, STEP_MAX = 190;
 
 function esc(str) {
   return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
@@ -111,7 +111,8 @@ function columns(model) {
   return { col, total, scheduled };
 }
 
-function mapLayout(model, available) {
+// available: width to fill. tall: height to fill, when the stations leave room.
+function mapLayout(model, available, tall = MAP_MIN) {
   const n = model.threads.length;
   const { col, total, scheduled } = columns(model);
   const step = Math.max(STEP_MIN, Math.min(STEP_MAX, (available - 130) / Math.max(total, 4)));
@@ -123,7 +124,7 @@ function mapLayout(model, available) {
     order[a.split(':')[0]] - order[b.split(':')[0]] || (a < b ? -1 : a > b ? 1 : 0));
   const above = Math.ceil(n / 2), below = n - above;
   const homes = above * HOME_GAP + Math.max(below, 1) * HOME_GAP, rows = Math.max(keys.length, 1);
-  const gap = Math.max(STATION_PAD + Math.max(n, 2) * LANE, (MAP_MIN - MAP_TOP * 2 - homes) / rows);
+  const gap = Math.max(STATION_PAD + Math.max(n, 2) * LANE, (Math.max(tall, MAP_MIN) - MAP_TOP * 2 - homes) / rows);
   const stationTop = MAP_TOP + above * HOME_GAP;
   const live = model.result ? liveRaces(model) : [];
   const stations = keys.map((key, i) => {
@@ -148,7 +149,8 @@ function mapLayout(model, available) {
       endX: points.length ? points.at(-1).x + step * 0.8 + 52 : 90,
       holds: spans.map(s => ({ name: s.name, from: s.from, to: s.released ? s.to : null })),
       blocked: !!model.state && !finished && pc < points.length && !model.runnable[t],
-      cargo: model.state ? cargoOf(model, t) : []
+      cargo: model.state ? cargoOf(model, t) : [],
+      tokens: model.state ? model.result.locks.filter((_, i) => model.state.owner[i] === t) : []
     };
   });
 
@@ -206,9 +208,10 @@ function stopAttrs(model, t, o) {
   const done = !!model.state && o < model.state.pc[t];
   const next = !!model.state && o === model.state.pc[t];
   const selected = !!model.selection && model.selection.t === t && model.selection.o === o;
+  const pair = selectedPair(model), inPair = pairHas(pair, id);
   return {
     className: ['stop', inkClass(t), done && 'is-done', next && 'is-next', selected && 'is-selected', conflicts && 'is-race',
-      pairHas(selectedPair(model), id) && 'is-pair', !op.target.trim() && 'is-empty'].filter(Boolean).join(' '),
+      inPair && (pair.safe ? 'is-pair is-safe' : 'is-pair'), !op.target.trim() && 'is-empty'].filter(Boolean).join(' '),
     label: `Thread ${t + 1}, operation ${o + 1}: ${op.type} ${op.target || 'no name'}` +
       (conflicts ? `, ${plural(conflicts, 'conflict')}` : '') + (done ? ', done' : next ? ', next' : ''),
     selected, type: op.type
@@ -341,7 +344,7 @@ function endingsView(model) {
   const values = o => result.variables.map((v, i) => `${clip(v, 14)} = ${o.values[i]}`).join(', ') || 'finishes';
   const via = schedule => schedule.map(t => t + 1).join(' ');
   const row = (id, action, text, schedule, cls) => `<li class="${cls}"><span class="sr-only">${esc(text)}</span>${flaps(text)}
-    <span class="via" title="Order of threads">${esc(clip(via(schedule), 24))}</span>
+    <span class="via">in order ${esc(clip(via(schedule), 28))}</span>
     <button type="button" id="${id}" ${action} aria-label="Run it: ${esc(text)}">Run</button></li>`;
   const rows = x.outcomes.slice(0, MAX_ENDINGS).map((o, i) => row(`ending-${i}`, `data-action="run-ending" data-i="${i}"`, values(o), o.schedule, '')).join('');
   const extra = x.outcomes.length > MAX_ENDINGS ? `<li class="more">and ${x.outcomes.length - MAX_ENDINGS} more</li>` : '';

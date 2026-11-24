@@ -381,7 +381,7 @@ function stopKey(e, t, o) {
 $('preset').innerHTML = '<option value="" disabled>Your own program</option>' +
   Object.entries(PRESETS).map(([key, p]) => `<option value="${key}">${esc(p.label)}</option>`).join('');
 labelTheme();
-TrainMap.init({ root: $('map'), scroller: $('map-scroll'), layer: $('map-layer'), svg: $('map-svg'), heads: $('map-heads'), plates: $('map-plates'), ticks: $('map-ticks'), popover: $('inspector') },
+TrainMap.init({ root: $('map'), scroller: $('map-scroll'), layer: $('map-layer'), svg: $('map-svg'), trains: $('map-trains'), land: $('map-land'), platforms: $('map-platforms'), heads: $('map-heads'), plates: $('map-plates'), ticks: $('map-ticks'), popover: $('inspector') },
   { onDragStart: stopRun, onDrop: dropOp });
 Levers.init($('levers'), t => { stopRun(); return pull(t); });
 const savedDesign = storage.get(DESIGN_KEY);

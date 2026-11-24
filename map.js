@@ -2,7 +2,7 @@
 // springs for stops, stations and trains, plucked strings for station lines, and dragging.
 const TrainMap = (() => {
   const SVG = 'http://www.w3.org/2000/svg';
-  const STIFFNESS = 150, DAMPING = 19, CAR_GAP = 42;
+  const STIFFNESS = 150, DAMPING = 19, CAR_GAP = 54, TRAIN_LIFT = -9;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
   let dom, callbacks, model = null, layout = null;
@@ -11,6 +11,36 @@ const TrainMap = (() => {
   const stops = new Map();    // op uid -> { el, x, y, t, o }
   const lines = new Map();    // thread id -> { home, end, train, adder, head, svg parts }
   const stations = new Map(); // station key -> { y, amp, plate, ... }
+
+  // ── Artwork ────────────────────────────────────────────────────────────────
+  const WHEELS = xs => xs.map(x => `<circle class="wheel" cx="${x}" cy="15" r="5"/>`).join('');
+  const ENGINE = `<path class="beam" d="M36 4L190 -34V52L36 10z"/>${WHEELS([-22, -9, 10, 23])}
+    <path class="engine-body" d="M-34 -17H12C26 -17 33 -7 37 5C38 10 36 13 32 13H-34C-36 13 -37 12 -37 10V-14C-37 -16 -36 -17 -34 -17z"/>
+    <path class="engine-glass" d="M12 -12C20 -12 26 -6 29 1H12z"/><path class="engine-stripe" d="M-37 6H36"/><circle class="lamp" cx="34" cy="6" r="2.6"/>
+    <g class="tokens"></g><text class="engine-text" x="-13" y="2"></text>`;
+  const CAR = `${WHEELS([-12, 12])}<path class="car-bed" d="M-21 8H21V13H-21z"/><path class="coupling" d="M21 10H28"/>
+    <rect class="car-body" x="-17" y="-17" width="34" height="25" rx="3"/><path class="car-rib" d="M-17 -10H17M-17 2H17"/><text class="car-text" x="0" y="2.5"></text>`;
+  const MAST = '<svg class="mast" viewBox="0 0 34 46" aria-hidden="true"><path class="mast-post" d="M8 46V3"/><path class="mast-arm" d="M8 6H32V15H8z"/></svg>';
+  const TOKEN = '<svg class="token" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle class="token-hole" cx="12" cy="12" r="4"/></svg>';
+
+  // Contour lines around a few hills, and a river: drawn once, drifting as time passes
+  function paintLand() {
+    const hill = (cx, cy, size, seed) => {
+      let out = '';
+      for (let r = 1; r <= 7; r++) {
+        let d = '';
+        for (let a = 0; a <= 72; a++) {
+          const th = a / 72 * Math.PI * 2;
+          const k = size * r / 7 * (1 + 0.16 * Math.sin(3 * th + seed) + 0.09 * Math.sin(5 * th - seed * 2 + r * 0.35) + 0.05 * Math.sin(8 * th + seed * 3));
+          d += `${a ? 'L' : 'M'}${(cx + Math.cos(th) * k * 1.7).toFixed(0)} ${(cy + Math.sin(th) * k * 0.8).toFixed(0)}`;
+        }
+        out += `<path class="contour${r % 3 ? '' : ' major'}" d="${d}z"/>`;
+      }
+      return out;
+    };
+    dom.land.innerHTML = `<g><path class="river" d="M-80 620C180 560 220 420 470 400S820 520 1040 420S1300 120 1620 160S2040 60 2300 -40"/>
+      ${hill(300, 120, 210, 1)}${hill(1010, 560, 260, 2.4)}${hill(1560, 120, 190, 4)}${hill(2080, 430, 240, 5.2)}${hill(-60, 520, 150, 3.1)}</g>`;
+  }
 
   // ── Springs ────────────────────────────────────────────────────────────────
   const spring = v => ({ v, to: v, dv: 0 });
@@ -40,7 +70,7 @@ const TrainMap = (() => {
   // ── Sync DOM with the model ────────────────────────────────────────────────
   function update(nextModel) {
     model = nextModel;
-    layout = mapLayout(model, dom.scroller.clientWidth);
+    layout = mapLayout(model, dom.scroller.clientWidth, roomForMap());
     present.to = layout.now;
     dom.popover.hidden = !model.selection; // now, so callers can focus its field
     syncStations();
@@ -49,28 +79,37 @@ const TrainMap = (() => {
     syncTicks();
     syncStructure();
     dom.root.style.setProperty('--map-height', `${layout.height}px`);
-    set(dom.svg, { width: layout.width, height: layout.height, viewBox: `0 0 ${layout.width} ${layout.height}` });
+    for (const el of [dom.svg, dom.trains]) set(el, { width: layout.width, height: layout.height, viewBox: `0 0 ${layout.width} ${layout.height}` });
     dom.layer.style.width = `${layout.width}px`;
     dom.layer.style.height = `${layout.height}px`;
     follow();
     if (reduced.matches) { allSprings().forEach(snap); draw(); } else wake();
   }
 
+  // Leave the control desk on screen beneath the map
+  function roomForMap() {
+    if (innerWidth <= 720) return 420;
+    return Math.min(720, innerHeight - dom.root.offsetTop - 348);
+  }
+
   function syncStations() {
-    prune(stations, new Set(layout.stations.map(s => s.key)), s => s.plate.remove());
+    prune(stations, new Set(layout.stations.map(s => s.key)), s => { s.plate.remove(); s.platform.remove(); });
     for (const s of layout.stations) {
       let st = stations.get(s.key);
       if (!st) {
-        const plate = html('div', 'station-plate', dom.plates);
-        st = { y: spring(s.y), amp: 0, plate, name: html('span', 'station-name', plate), value: html('span', 'station-value', plate), start: null };
+        const plate = html('div', 'station-plate', dom.plates), platform = html('div', 'platform', dom.platforms);
+        if (s.kind !== 'variable') plate.innerHTML = s.kind === 'semaphore' ? MAST : TOKEN;
+        st = { y: spring(s.y), amp: 0, plate, platform, name: html('span', 'station-name', plate), value: html('span', 'station-value', plate), start: null };
         stations.set(s.key, st);
       }
       st.y.to = s.y;
       st.info = s;
-      st.plate.className = `station-plate is-${s.kind}${s.conflicts ? ' is-exposed' : ''}`;
+      const value = stationValue(model, s);
+      const open = s.kind === 'semaphore' ? +value > 0 : s.kind === 'lock' && value === 'free';
+      st.plate.className = `station-plate is-${s.kind}${s.conflicts ? ' is-exposed' : ''}${open ? ' is-open' : ''}`;
+      st.platform.className = `platform is-${s.kind}${s.conflicts ? ' is-exposed' : ''}`;
       st.name.textContent = s.name || 'unnamed';
       st.name.title = s.name;
-      const value = stationValue(model, s);
       if (st.value.textContent !== value) {
         const first = st.value.textContent === '';
         st.value.textContent = value;
@@ -175,45 +214,49 @@ const TrainMap = (() => {
       const back = svg('g', '', dom.svg);
       for (const s of layout.stations) {
         const st = stations.get(s.key);
-        st.band = svg('rect', `band band-${s.kind}`, back);
         st.string = svg('path', `string string-${s.kind}`, back);
       }
       dom.now = svg('line', 'now', dom.svg);
       const arcs = svg('g', '', dom.svg);
       dom.arcs = layout.arcs.map(() => svg('path', '', arcs));
-      const tracks = svg('g', '', dom.svg), trains = svg('g', '', dom.svg);
+      const tracks = svg('g', '', dom.svg), trains = dom.trains;
+      trains.innerHTML = '<defs><linearGradient id="beam"><stop offset="0" stop-color="#ffe9a0"/><stop offset="1" stop-color="#ffe9a0" stop-opacity="0"/></linearGradient></defs>';
       model.threads.forEach((thread, t) => {
         const l = lines.get(thread.id);
         const g = svg('g', '', tracks);
         l.g = g;
         l.sheaths = layout.threads[t].holds.map(() => svg('path', 'sheath', g));
-        l.ahead = svg('path', 'track-ahead', g);
-        l.behind = svg('path', 'track-behind', g);
+        l.ahead = [svg('path', 'sleepers', g), svg('path', 'track-ahead', g)];
+        l.behind = [svg('path', 'track-casing', g), svg('path', 'track-behind', g), svg('path', 'track-shine', g)];
         const tg = l.trainG = svg('g', '', trains);
         l.cars = layout.threads[t].cargo.map(() => {
           const car = svg('g', 'car', tg);
-          set(svg('rect', 'car-body', car), { x: -18, y: -14, width: 36, height: 28, rx: 8 });
-          svg('text', 'car-text', car);
+          car.innerHTML = CAR;
           return car;
         });
         l.engine = svg('g', 'engine', tg);
-        set(svg('rect', 'engine-body', l.engine), { x: -24, y: -16, width: 48, height: 32, rx: 15 });
-        set(svg('text', 'engine-text', l.engine), { x: 0, y: 7.5 });
+        l.engine.innerHTML = ENGINE;
+        l.tokenKey = null;
         l.signal = svg('g', 'signal', tg);
-        set(svg('path', 'signal-post', l.signal), { d: 'M0 0V-34' });
-        set(svg('path', 'signal-arm', l.signal), { d: 'M0 -34h22v9H0z' });
+        set(svg('path', 'signal-post', l.signal), { d: 'M0 6V-44' });
+        set(svg('path', 'signal-arm', l.signal), { d: 'M0 -44h28v10H0z' });
       });
     }
     model.threads.forEach((thread, t) => {
       const l = lines.get(thread.id), target = layout.threads[t];
       for (const g of [l.g, l.trainG]) g.setAttribute('class', inkClass(t));
       l.engine.lastChild.textContent = t + 1;
+      const tokens = JSON.stringify(target.tokens);
+      if (l.tokenKey !== tokens) {
+        l.tokenKey = tokens;
+        l.engine.querySelector('.tokens').innerHTML = target.tokens.map((name, i) =>
+          `<g transform="translate(${-26 + i * 21} -26)"><g class="token-badge"><circle r="9"/><circle class="token-hole" r="3.4"/></g></g>`).join('');
+      }
       l.signal.style.display = target.blocked ? '' : 'none';
       l.cars.forEach((car, i) => {
         const c = target.cargo[i];
         car.setAttribute('class', `car${c.stale ? ' is-stale' : ''}`);
         car.lastChild.textContent = target.cargo.length > 1 ? `${c.name[0]}${c.value}` : c.value;
-        set(car.lastChild, { x: 0, y: 7 });
       });
       l.sheaths.forEach((el, i) => el.setAttribute('class', `sheath${target.holds[i].to === null ? ' is-open' : ''}`));
     });
@@ -266,7 +309,8 @@ const TrainMap = (() => {
     const { width, step } = layout, still = reduced.matches;
     for (const st of stations.values()) {
       const y = st.y.v, half = (Math.max(model.threads.length, 2) * LANE) / 2 + 8;
-      set(st.band, { x: 0, y: y - half, width, height: half * 2 });
+      st.platform.style.transform = `translateY(${(y - half).toFixed(1)}px)`;
+      st.platform.style.height = `${half * 2}px`;
       const amp = still ? 0 : st.amp;
       let d = `M0 ${y.toFixed(1)}`;
       if (amp > 0.15) {
@@ -285,24 +329,27 @@ const TrainMap = (() => {
       const home = l.home.v, x = l.train.v, end = l.end.v;
       const knots = routeKnots(points, home, step);
       const yAt = px => routeY(knots, px);
-      l.behind.setAttribute('d', trace(knots, 0, Math.min(x, end)));
-      l.ahead.setAttribute('d', trace(knots, Math.max(0, x), end));
+      const past = trace(knots, 0, Math.min(x, end)), plan = trace(knots, Math.max(0, x), end);
+      l.behind.forEach(el => el.setAttribute('d', past));
+      l.ahead.forEach(el => el.setAttribute('d', plan));
       l.sheaths.forEach((el, i) => {
         const h = target.holds[i], at = o => stops.get(thread.ops[o].uid).x.v;
         el.setAttribute('d', trace(knots, at(h.from), h.to === null ? end : at(h.to)));
       });
       const place = (el, px) => {
         const slope = Math.atan2(yAt(px + 5) - yAt(px - 5), 10) * 180 / Math.PI;
-        el.setAttribute('transform', `translate(${px.toFixed(1)} ${yAt(px).toFixed(1)}) rotate(${slope.toFixed(1)})`);
-        el.lastChild.setAttribute('transform', `rotate(${(-slope).toFixed(1)})`); // numbers stay upright
+        el.setAttribute('transform', `translate(${px.toFixed(1)} ${yAt(px).toFixed(1)}) rotate(${slope.toFixed(1)}) translate(0 ${TRAIN_LIFT})`);
+        const text = el.lastChild; // numbers stay upright
+        text.setAttribute('transform', `rotate(${(-slope).toFixed(1)} ${text.getAttribute('x')} -4)`);
       };
-      place(l.engine, Math.max(x, 26));
-      l.cars.forEach((car, i) => place(car, Math.max(x, 26) - CAR_GAP * (i + 1) - 4));
-      const sx = Math.max(x, 26) + 34;
+      place(l.engine, Math.max(x, 34));
+      l.cars.forEach((car, i) => place(car, Math.max(x, 34) - CAR_GAP * (i + 1) - 12));
+      const sx = Math.max(x, 34) + 52;
       l.signal.setAttribute('transform', `translate(${sx.toFixed(1)} ${(yAt(sx) + 8).toFixed(1)})`);
       l.adder.style.transform = `translate(${end.toFixed(1)}px, ${yAt(end).toFixed(1)}px) translate(-50%, -50%)`;
       l.head.style.transform = `translateY(${home.toFixed(1)}px) translateY(-50%)`;
     });
+    if (!still) dom.land.firstChild.setAttribute('transform', `translate(${(-present.v * 0.07).toFixed(1)} 0)`);
     set(dom.now, { x1: present.v, x2: present.v, y1: 0, y2: layout.height });
 
     for (const s of stops.values()) s.el.style.transform = `translate(${s.x.v.toFixed(1)}px, ${s.y.v.toFixed(1)}px) translate(-50%, -50%)`;
@@ -421,6 +468,7 @@ const TrainMap = (() => {
   function init(elements, handlers) {
     dom = elements;
     callbacks = handlers;
+    paintLand();
     dom.layer.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -429,6 +477,7 @@ const TrainMap = (() => {
     dom.scroller.addEventListener('scroll', () => { if (model) placePopover(); }, { passive: true });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
     reduced.addEventListener('change', () => { if (model) update(model); });
+    addEventListener('resize', () => { if (model) update(model); });
     new ResizeObserver(() => { if (model) update(model); }).observe(dom.scroller);
   }
 

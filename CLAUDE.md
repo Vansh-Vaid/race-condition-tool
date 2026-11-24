@@ -4,7 +4,8 @@ Educational, browser-only race condition detector. The user designs threads out 
 (READ, WRITE, LOCK, UNLOCK, WAIT, SIGNAL), then schedules them by pulling levers. The engine explores every
 schedule and reports races, endings and deadlock. Vanilla HTML/CSS/JS with no dependencies and no build step: keep it that way.
 
-- **Run:** open `index.html`, or `python -m http.server` from the root.
+- **Run:** open `index.html`. If you serve it with `python -m http.server`, open one tab at a time: its queue of 5
+  connections refuses scripts when two tabs load together, which leaves the page dead.
 - **Test:** `node --test` (covers everything except `app.js`, `map.js` and `levers.js`). UI changes need a browser check in both
   themes and at phone width.
 - **Deploy:** GitHub Pages serves `main` from the root, so **every push to `main` goes live** at
@@ -52,12 +53,14 @@ wrapper because access can throw.
 
 ### Design language
 
-A living train map, because Dijkstra's semaphore is a railway signal. The railway is the form; labels keep CS
-terms. Each visual must mean something:
+The view from a signal box, because Dijkstra's semaphore is a railway signal: landscape and trains through the
+window (map), a dark control desk below (announcement, levers, departure board). The desk must stay on screen at
+1440x900, so `roomForMap()` sizes the map to the window. The railway is the form; labels keep CS terms. Each visual must mean something:
 
 - Time runs right. A thread rides its home line and swoops to a station (variable, lock, semaphore) to use it.
 - Cargo on a train is the copy it read, red when out of date. A lost value falls off the track.
-- A string trembles while its variable has a live conflict. A sheath marks a held lock.
+- A string trembles, and its platform edge turns red, while its variable has a live conflict.
+- A sheath marks a held lock, and the holder's train carries its token. A semaphore's arm drops when it is above 0.
 - Red means danger only. Thread colour always comes with the thread's number.
 - Motion goes through springs or WAAPI and must respect `prefers-reduced-motion`.
 
@@ -85,8 +88,7 @@ committed locally and awaiting review. Neither is pushed, so the live site still
 - [x] Detection (Bernstein, lockset, semaphore ordering), full schedule exploration, witnesses, deadlock
 - [x] Living train map with draggable stops, physical levers, undo, saved designs, 6 presets with challenges
 - [x] Possible endings, conflict list with "Show it happen", Markdown export, runnable C and Python
-- [x] Light/dark, phone layout, keyboard control, reduced motion. Lighthouse accessibility 100; 97 with the
-      phone editor sheet open, because it covers the transport buttons
+- [x] Light/dark, phone layout, keyboard control, reduced motion. Lighthouse accessibility 100 on phone and desktop
 - [x] Tests for engine, codegen, model and views
 
 ### Known limits
@@ -113,3 +115,5 @@ committed locally and awaiting review. Neither is pushed, so the live site still
   rewrite, UI bugs, accessibility, tests, README; removed four spent codemods.
 - 2026-11-24: Redesign on `redesign/signal-box`. A static tile panel came first and was rejected as rigid;
   replaced by the living train map. Engine gained stepping and exploration.
+- 2026-11-24: Graphics and layout pass: signal-box window and desk, landscape, trains with cargo and tokens,
+  steel levers, platforms, semaphore masts.
