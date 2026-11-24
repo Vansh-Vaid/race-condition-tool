@@ -2,7 +2,7 @@
 
 const $ = id => document.getElementById(id);
 const DESIGN_KEY = 'raceguard-design', THEME_KEY = 'raceguard-theme';
-const RUN_INTERVAL = 650;
+const RUN_INTERVAL = 900;
 
 // localStorage throws when the browser blocks site data
 const storage = {
@@ -11,7 +11,7 @@ const storage = {
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let threads = [], counts = {}, nextId = 0;
+let threads = [], counts = {}, nextId = 0; // op.uid lets the map follow an operation as it moves
 let view = { preset: null, schedule: [], cursor: 0, selection: null, pair: null };
 let analysis = null, model = null;
 let runTimer = null;
@@ -20,7 +20,7 @@ let lastEdit = null; // key of the previous edit, so typing in one field undoes 
 
 // ── Design ────────────────────────────────────────────────────────────────────
 function snapshot() {
-  return JSON.stringify({ threads: threads.map(({ name, ops }) => ({ name, ops })), semaphores: counts, preset: view.preset });
+  return JSON.stringify({ threads: threads.map(({ name, ops }) => ({ name, ops: ops.map(({ type, target }) => ({ type, target })) })), semaphores: counts, preset: view.preset });
 }
 
 // Returns false if the text is not a usable design
@@ -36,9 +36,11 @@ function loadSnapshot(text) {
   return true;
 }
 
+function newOp(type, target) { return { uid: nextId++, type, target }; }
+
 function setDesign(list, semaphores, preset) {
   stopRun();
-  threads = list.map(t => ({ id: `T${nextId++}`, name: t.name, ops: t.ops.map(o => ({ type: o.type, target: o.target })) }));
+  threads = list.map(t => ({ id: `T${nextId++}`, name: t.name, ops: t.ops.map(o => newOp(o.type, o.target)) }));
   counts = { ...semaphores };
   view = { preset, schedule: [], cursor: 0, selection: null, pair: null };
   reanalyse();
@@ -78,16 +80,25 @@ function reanalyse() {
 // ── Running ───────────────────────────────────────────────────────────────────
 function pull(t) {
   if (!model.state || !model.runnable[t]) return false;
-  const done = model.schedule.slice(0, model.cursor);
+  const k = model.cursor, o = model.state.pc[t], before = model.state;
   // Keep the plan if it already says this; otherwise replan from here
-  view.schedule = model.schedule[model.cursor] === t ? model.schedule : analysis.engine.roundRobin([...done, t]);
-  view.cursor = model.cursor + 1;
+  view.schedule = model.schedule[k] === t ? model.schedule : analysis.engine.roundRobin([...model.schedule.slice(0, k), t]);
+  view.cursor = k + 1;
   render();
-  throwLever(t);
+
+  const op = threads[t].ops[o], stale = model.isStale(k);
+  TrainMap.ring(t, o, stale);
+  TrainMap.pluck(stationKey(op), stale ? 12 : op.type === 'READ' ? 3 : 5);
+  if (stale) TrainMap.drop(t, o, before.values[model.result.variables.indexOf(op.target.trim())]);
   return true;
 }
 
-function stepOn() { return !!model.state && model.cursor < model.schedule.length && pull(model.schedule[model.cursor]); }
+function stepOn() {
+  if (!model.state || model.cursor >= model.schedule.length) return false;
+  const t = model.schedule[model.cursor];
+  Levers.swing(t);
+  return pull(t);
+}
 
 function jumpTo(cursor) {
   if (!model.state) return;
@@ -120,8 +131,8 @@ function stopRun() {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 const REGIONS = {
-  annunciator: annunciatorView, panel: panelView, inspector: inspectorView, problems: problemsView, levers: leversView,
-  challenge: challengeView, log: logView, board: boardView, graph: graphView, endings: endingsView, register: registerView
+  annunciator: annunciatorView, inspector: inspectorView, problems: problemsView,
+  challenge: challengeView, log: logView, board: boardView, endings: endingsView, register: registerView
 };
 const shown = {};
 
@@ -129,21 +140,20 @@ function render() {
   model = buildModel(threads, counts, analysis, view, PRESETS);
   Object.assign(view, { schedule: model.schedule, cursor: model.cursor });
 
-  const berths = berthPositions();
   const focus = rememberFocus();
   for (const [id, draw] of Object.entries(REGIONS)) {
     const html = draw(model);
     if (shown[id] !== html) $(id).innerHTML = shown[id] = html;
   }
+  TrainMap.update(model);
+  Levers.update(model);
   restoreFocus(focus);
-  slideBerths(berths);
 
   $('preset').value = view.preset || '';
   $('undo').disabled = undoStack.length === 0;
   $('export').disabled = !model.result;
   renderTransport();
   renderCode();
-  if (model.state) keepInView($('graph'), STATION_W + model.cursor * stepWidth(Math.max(model.schedule.length, 4)));
 }
 
 function renderTransport() {
@@ -177,25 +187,6 @@ function restoreFocus(saved) {
 
 function reducedMotion() { return matchMedia('(prefers-reduced-motion: reduce)').matches; }
 
-// Trains glide to their new berth
-function berthPositions() {
-  return Object.fromEntries([...document.querySelectorAll('[data-berth]')].map(el => [el.dataset.berth, el.offsetLeft]));
-}
-function slideBerths(before) {
-  if (reducedMotion()) return;
-  document.querySelectorAll('[data-berth]').forEach(el => {
-    const dx = before[el.dataset.berth] - el.offsetLeft;
-    if (dx) el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.3,.1,.2,1)' });
-  });
-}
-function throwLever(t) {
-  const arm = document.querySelector(`[data-arm="${t}"]`);
-  if (!arm || reducedMotion()) return;
-  arm.animate([{ transform: 'rotate(-16deg)' }, { transform: 'rotate(20deg)', offset: 0.45 }, { transform: 'rotate(-16deg)' }], { duration: 420, easing: 'ease-in-out' });
-}
-function keepInView(scroller, x) {
-  if (x < scroller.scrollLeft + STATION_W || x > scroller.scrollLeft + scroller.clientWidth - 20) scroller.scrollLeft = x - scroller.clientWidth / 2;
-}
 function announce(text) { $('announce').textContent = text; }
 
 // ── Actions: buttons carry data-action ────────────────────────────────────────
@@ -209,7 +200,7 @@ const ACTIONS = {
   'add-op'(d) {
     const t = +d.t, last = threads[t].ops.at(-1);
     edit(null, () => {
-      threads[t].ops.push({ type: 'READ', target: last && (last.type === 'READ' || last.type === 'WRITE') ? last.target : 'x' });
+      threads[t].ops.push(newOp('READ', last && (last.type === 'READ' || last.type === 'WRITE') ? last.target : 'x'));
       view.selection = { t, o: threads[t].ops.length - 1 };
     });
     $('op-target').focus();
@@ -221,7 +212,7 @@ const ACTIONS = {
       threads[t].ops.splice(o, 1);
       view.selection = threads[t].ops.length ? { t, o: Math.min(o, threads[t].ops.length - 1) } : null;
     });
-    $(view.selection ? `tile-${t}-${view.selection.o}` : `add-${t}`).focus();
+    $(view.selection ? `stop-${t}-${view.selection.o}` : `add-${t}`).focus();
   },
   'move-op'(d) { moveOp(view.selection.t, view.selection.o, view.selection.o + Number(d.by)); },
   'add-thread'() {
@@ -240,7 +231,12 @@ const ACTIONS = {
     announce('Program cleared. Undo brings it back.');
   },
   undo,
-  pull(d) { stopRun(); if (!pull(+d.t)) refuseLever(+d.t); },
+  deselect() {
+    const { t, o } = view.selection;
+    view.selection = null;
+    render();
+    $(`stop-${t}-${o}`).focus();
+  },
   rewind() { stopRun(); jumpTo(0); },
   back() { stopRun(); jumpTo(model.cursor - 1); },
   on() { stopRun(); stepOn(); },
@@ -251,10 +247,10 @@ const ACTIONS = {
     const schedule = analysis.exploration.witnesses.get(d.key);
     view.pair = d.key;
     runSchedule(schedule, schedule.length);
-    revealFrame();
+    revealMap();
   },
-  'run-ending'(d) { runSchedule(analysis.exploration.outcomes[+d.i].schedule, 0); revealFrame(); startRun(); },
-  'run-deadlock'() { runSchedule(analysis.exploration.deadlock.schedule, 0); revealFrame(); startRun(); },
+  'run-ending'(d) { runSchedule(analysis.exploration.outcomes[+d.i].schedule, 0); revealMap(); startRun(); },
+  'run-deadlock'() { runSchedule(analysis.exploration.deadlock.schedule, 0); revealMap(); startRun(); },
   theme() {
     const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
@@ -280,14 +276,18 @@ function moveOp(t, from, to) {
   });
 }
 
-function refuseLever(t) {
-  const lever = $(`lever-${t}`);
-  if (lever && !reducedMotion()) lever.animate([{ transform: 'none' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'none' }], { duration: 160 });
+function dropOp(t, from, to, target) {
+  edit(null, () => {
+    const [op] = threads[t].ops.splice(from, 1);
+    op.target = target;
+    threads[t].ops.splice(to, 0, op);
+    view.selection = null;
+  });
 }
 
-function revealFrame() {
-  const box = $('frame').getBoundingClientRect();
-  if (box.top < 0 || box.bottom > innerHeight) $('frame').scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+function revealMap() {
+  const box = $('map').getBoundingClientRect();
+  if (box.top < 0 || box.bottom > innerHeight) $('map').scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
 }
 
 function labelTheme() { $('theme').textContent = document.documentElement.dataset.theme === 'dark' ? 'Day' : 'Night'; }
@@ -343,20 +343,21 @@ document.addEventListener('keydown', e => {
   const inText = typing && typing.matches('input:not([type="radio"])');
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !inText) { e.preventDefault(); undo(); return; }
   if (e.ctrlKey || e.metaKey) return;
-  const tile = e.target.closest('.tile[data-o]');
-  if (tile && tileKey(e, +tile.dataset.t, +tile.dataset.o)) { e.preventDefault(); return; }
+  const stop = e.target.closest('.stop');
+  if (stop && stopKey(e, +stop.dataset.t, +stop.dataset.o)) { e.preventDefault(); return; }
   if (typing || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
-    if (+e.key <= threads.length) ACTIONS.pull({ t: e.key - 1 });
+    const t = e.key - 1;
+    if (t < threads.length) { stopRun(); if (pull(t)) Levers.swing(t); else Levers.refuse(t); }
   } else if (e.key === 'ArrowRight' && model.state) { e.preventDefault(); ACTIONS.on(); }
   else if (e.key === 'ArrowLeft' && model.state) { e.preventDefault(); ACTIONS.back(); }
   else if (e.key === 'Escape') { view.selection = null; view.pair = null; render(); }
 });
 
-// Arrow keys walk the panel; Alt+arrow moves the operation; Delete removes it
-function tileKey(e, t, o) {
+// Arrow keys walk the map; Alt+arrow moves the operation; Delete removes it
+function stopKey(e, t, o) {
   const go = (t2, o2) => {
-    const el = $(`tile-${t2}-${o2}`) || $(`add-${t2}`);
+    const el = $(`stop-${t2}-${o2}`) || $(`add-${t2}`);
     if (el) { el.focus(); el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
     return true;
   };
@@ -376,31 +377,18 @@ function tileKey(e, t, o) {
   }
 }
 
-// Drag a tile along its own track
-let dragged = null;
-function dropTarget(e) {
-  const tile = dragged && e.target.closest && e.target.closest('.tile[data-o]');
-  return tile && +tile.dataset.t === dragged.t ? tile : null;
-}
-document.addEventListener('dragstart', e => {
-  const tile = e.target.closest && e.target.closest('.tile[data-o]');
-  if (!tile) return;
-  dragged = { t: +tile.dataset.t, o: +tile.dataset.o };
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', tile.title);
-});
-document.addEventListener('dragover', e => { if (dropTarget(e)) e.preventDefault(); });
-document.addEventListener('drop', e => {
-  const tile = dropTarget(e);
-  if (!tile) return;
-  e.preventDefault();
-  moveOp(dragged.t, dragged.o, +tile.dataset.o);
-});
-document.addEventListener('dragend', () => { dragged = null; });
-
 // ── Start ─────────────────────────────────────────────────────────────────────
 $('preset').innerHTML = '<option value="" disabled>Your own program</option>' +
   Object.entries(PRESETS).map(([key, p]) => `<option value="${key}">${esc(p.label)}</option>`).join('');
 labelTheme();
+TrainMap.init({ root: $('map'), scroller: $('map-scroll'), layer: $('map-layer'), svg: $('map-svg'), heads: $('map-heads'), plates: $('map-plates'), ticks: $('map-ticks'), popover: $('inspector') },
+  { onDragStart: stopRun, onDrop: dropOp });
+Levers.init($('levers'), t => { stopRun(); return pull(t); });
 const savedDesign = storage.get(DESIGN_KEY);
 if (!savedDesign || !loadSnapshot(savedDesign) || threads.length === 0) loadPreset('counter');
+
+// Show what the machine does: run the opening program once, unless the visitor acts first
+if (!reducedMotion() && view.preset) {
+  const opening = setTimeout(startRun, 1100);
+  for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => clearTimeout(opening), { once: true, capture: true });
+}

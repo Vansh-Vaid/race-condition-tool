@@ -32,40 +32,37 @@
 </header>
 
 <main>
-  <section class="console" aria-label="Program">
-    <div class="panel-scroll"><div id="panel"></div></div>
-    <div id="problems" role="alert"></div>
-    <div class="bay"><button type="button" class="add-thread" id="add-thread" data-action="add-thread">Add thread</button>
-      <div id="inspector" class="inspector-bay"></div></div>
+  <section class="map" id="map" aria-label="Program">
+    <div class="map-heads" id="map-heads"></div>
+    <div class="map-scroll" id="map-scroll">
+      <div class="map-layer" id="map-layer"><svg id="map-svg" aria-hidden="true"></svg><div class="map-ticks" id="map-ticks" aria-hidden="true"></div></div>
+    </div>
+    <div class="map-plates" id="map-plates"></div>
+    <div class="popover" id="inspector" hidden></div>
   </section>
 
-  <section class="frame" id="frame" aria-label="Scheduler">
-    <div class="frame-head">
+  <div id="problems" role="alert"></div>
+
+  <section class="dock" aria-label="Scheduler">
+    <div class="dock-side">
       <p id="challenge" class="challenge"></p>
       <div class="transport">
         <button type="button" id="rewind" data-action="rewind">Start over</button>
         <button type="button" id="back" data-action="back">Back</button>
         <button type="button" id="on" data-action="on">Step</button>
         <button type="button" id="run" data-action="run">Run</button>
+        <button type="button" id="add-thread" data-action="add-thread">Add thread</button>
       </div>
     </div>
-    <div class="frame-body">
-      <div class="levers" id="levers"></div>
-      <div class="board" id="board" aria-label="Memory"></div>
-    </div>
+    <div class="levers" id="levers"></div>
     <p class="log" id="log" aria-live="polite"></p>
+    <div class="sr-only" id="board"></div>
   </section>
 
-  <section class="sheet" aria-labelledby="graph-title">
-    <div class="sheet-head"><h2 id="graph-title">Train graph</h2>
-      <p>Time runs right. A flat line is a thread waiting. Open marks are reads and releases. Shading is a lock being held. Pale lines are the plan.</p></div>
-    <div class="graph-scroll" id="graph"></div>
-  </section>
-
-  <aside class="docket" aria-label="Findings">
-    <section aria-labelledby="endings-title"><h2 id="endings-title">Endings</h2><div id="endings"></div></section>
-    <section aria-labelledby="register-title"><h2 id="register-title">Conflict register</h2><div id="register"></div></section>
-  </aside>
+  <div class="docket">
+    <section class="departures" aria-labelledby="endings-title"><h2 id="endings-title">Possible endings</h2><div id="endings"></div></section>
+    <section class="findings" aria-labelledby="register-title"><h2 id="register-title">Conflicts</h2><div id="register"></div></section>
+  </div>
 
   <section class="listing" aria-labelledby="code-title">
     <div class="listing-head"><h2 id="code-title">As real code</h2>
@@ -87,8 +84,9 @@
       <div><dt>Never meet</dt><dd>The rules cannot prove it safe, but no schedule brings the two together.</dd></div>
       <div><dt>Values</dt><dd>Every variable starts at 0. A WRITE after a READ stores the copy plus 1. A WRITE on its own stores the thread’s number.</dd></div>
     </dl>
+    <p class="why">On the map, time runs right. A train carries the copy it read. A line that trembles is unprotected, and a sheathed track is holding a lock. </p>
     <p class="why">Why a railway? Dijkstra’s semaphore is named after the railway signal. A mutex is the token a driver must hold to enter a single line, and a deadlock is two trains facing each other, each waiting for the other’s section.</p>
-    <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> pull a lever. <kbd>←</kbd> <kbd>→</kbd> step. On a tile: arrows move around, <kbd>Alt</kbd>+<kbd>←</kbd> <kbd>→</kbd> reorder, <kbd>Delete</kbd> removes. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes.</p>
+    <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> pull a lever, or drag it across. <kbd>←</kbd> <kbd>→</kbd> step. On a stop: arrows move around, <kbd>Alt</kbd>+<kbd>←</kbd> <kbd>→</kbd> reorder, <kbd>Delete</kbd> removes. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes.</p>
   </section>
 </main>
 
@@ -98,6 +96,8 @@
 <script src="codegen.js"></script>
 <script src="model.js"></script>
 <script src="views.js"></script>
+<script src="map.js"></script>
+<script src="levers.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

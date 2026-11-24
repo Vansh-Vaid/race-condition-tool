@@ -3,37 +3,29 @@
 
 const OP_TYPES = ['READ', 'WRITE', 'LOCK', 'UNLOCK', 'WAIT', 'SIGNAL'];
 
-// Panel geometry, in px. The mosaic is built from CELL-sized squares; a tile covers 2 x 2.
-const CELL = 48, TILE = 96, PLATE_W = 144, RAIL_H = 18;
-// Train graph geometry
-const STATION_H = 34, STATION_W = 104, GRAPH_TOP = 30;
+// Map geometry, in px
+const LANE = 34, STATION_PAD = 70, MAP_TOP = 40, MAP_MIN = 440, HOME_GAP = 54, STEP_MIN = 92, STEP_MAX = 190;
 
 function esc(str) {
   return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 }
 function clip(str, max) { return str.length > max ? `${str.slice(0, max - 1)}…` : str; }
-// Short schedules get wider steps
-function stepWidth(steps) { return steps <= 6 ? 104 : steps <= 10 ? 78 : steps <= 16 ? 58 : 46; }
 function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
 function inkClass(i) { return `ink-${i % 6}`; }
 
-// ── Operation symbols, drawn on a 96 x 40 strip above the track ──────────────
+// ── Operation symbols, 24 x 24 ───────────────────────────────────────────────
 const SYMBOL = {
-  // A value leaves the section / arrives in it
-  READ:   '<path class="sym-line" d="M48 20V4M42 10l6-6 6 6"/>',
-  WRITE:  '<path class="sym-line" d="M48 2v16M42 12l6 6 6-6"/>',
+  // A value leaves the station / arrives in it
+  READ:   '<path d="M12 20V5M6 11l6-6 6 6"/>',
+  WRITE:  '<path d="M12 4v15M6 13l6 6 6-6"/>',
   // The token is taken / put back
-  LOCK:   '<circle class="sym-solid" cx="48" cy="11" r="7"/>',
-  UNLOCK: '<circle class="sym-line" cx="48" cy="11" r="6"/>',
+  LOCK:   '<circle class="solid" cx="12" cy="12" r="6"/>',
+  UNLOCK: '<circle cx="12" cy="12" r="6"/>',
   // Semaphore arm at stop / lowered to clear
-  WAIT:   '<path class="sym-line" d="M40 22V2"/><path class="sym-solid" d="M40 2h20v7H40z"/>',
-  SIGNAL: '<path class="sym-line" d="M40 22V2"/><path class="sym-solid" d="M42 2l17 10-4 6-15-9z"/>'
+  WAIT:   '<path d="M7 21V4"/><path class="solid" d="M7 4h13v6H7z"/>',
+  SIGNAL: '<path d="M7 21V4"/><path class="solid" d="M8 5l12 7-3 5-9-5z"/>'
 };
-
-function symbolSvg(type, lit) {
-  const lamps = [8, 38, 68].map(x => `<rect class="lamp${lit ? ' lit' : ''}" x="${x}" y="27" width="20" height="4"/>`).join('');
-  return `<svg class="symbol" viewBox="0 0 96 40" aria-hidden="true"><rect class="rail" x="0" y="23" width="96" height="12"/>${lamps}${SYMBOL[type]}</svg>`;
-}
+function symbolSvg(type) { return `<svg class="symbol" viewBox="0 0 24 24" aria-hidden="true">${SYMBOL[type]}</svg>`; }
 
 // ── Model helpers ────────────────────────────────────────────────────────────
 function opId(model, t, o) { return `${model.threads[t].id}-op${o}`; }
@@ -93,88 +85,150 @@ function annunciatorView(model) {
     + pane('Deadlock', x.deadlock ? 'Possible' : x.complete ? 'None' : 'Not found yet', x.deadlock ? 'danger' : x.complete ? 'clear' : 'warn');
 }
 
-// ── Mosaic panel ─────────────────────────────────────────────────────────────
-function panelLayout(model) {
-  const rows = [];
-  let top = 0;
-  model.threads.forEach((thread, t) => {
-    const spans = model.result ? holdSpans(model.result.threads[t], model.result.lockSets) : [];
-    const lanes = spans.reduce((n, s) => Math.max(n, s.lane + 1), 0);
-    // Space under the tiles for hold rails and wires, in whole cells
-    const wires = t < model.threads.length - 1 ? 30 : lanes ? 6 : 0;
-    const below = Math.ceil((lanes * RAIL_H + wires) / CELL) * CELL;
-    rows.push({ top, spans, height: TILE + below });
-    top += TILE + below;
+// ── Train map layout ─────────────────────────────────────────────────────────
+// Time runs right. Stations (shared things) lie across the middle. Each thread rides a home line above or
+// below them and swoops in to touch a station at the step its operation runs. Everything here is a target position: map.js animates to it.
+
+const STATION_KIND = { READ: 'variable', WRITE: 'variable', LOCK: 'lock', UNLOCK: 'lock', WAIT: 'semaphore', SIGNAL: 'semaphore' };
+function stationKey(op) { return `${STATION_KIND[op.type]}:${op.target.trim()}`; }
+
+// Column of every operation: scheduled ones at their step, stuck ones after the last step.
+function columns(model) {
+  const col = model.threads.map(t => t.ops.map(() => -1));
+  if (!model.state) { // not analysable yet: take turns, ignoring blocking
+    let k = 0;
+    const longest = model.threads.reduce((n, t) => Math.max(n, t.ops.length), 0);
+    for (let o = 0; o < longest; o++) model.threads.forEach((t, i) => { if (o < t.ops.length) col[i][o] = k++; });
+    return { col, total: k, scheduled: k };
+  }
+  const pc = model.threads.map(() => 0);
+  model.schedule.forEach((t, k) => { col[t][pc[t]++] = k; });
+  const scheduled = model.schedule.length;
+  let total = scheduled;
+  model.threads.forEach((t, i) => {
+    for (let o = pc[i]; o < t.ops.length; o++) { col[i][o] = scheduled + o - pc[i]; total = Math.max(total, col[i][o] + 1); }
   });
-  const cols = model.threads.reduce((n, t) => Math.max(n, t.ops.length), 0) + 1;
-  return { rows, height: top, width: PLATE_W + cols * TILE };
+  return { col, total, scheduled };
 }
 
-function wiresView(model, layout) {
-  if (!model.result) return '';
+function mapLayout(model, available) {
+  const n = model.threads.length;
+  const { col, total, scheduled } = columns(model);
+  const step = Math.max(STEP_MIN, Math.min(STEP_MAX, (available - 130) / Math.max(total, 4)));
+  const width = Math.max(available, Math.max(total, 4) * step + 130);
+
+  const order = { variable: 0, lock: 1, semaphore: 2 };
+  const ops = model.threads.flatMap(t => t.ops);
+  const keys = [...new Set(ops.map(stationKey))].sort((a, b) =>
+    order[a.split(':')[0]] - order[b.split(':')[0]] || (a < b ? -1 : a > b ? 1 : 0));
+  const above = Math.ceil(n / 2), below = n - above;
+  const homes = above * HOME_GAP + Math.max(below, 1) * HOME_GAP, rows = Math.max(keys.length, 1);
+  const gap = Math.max(STATION_PAD + Math.max(n, 2) * LANE, (MAP_MIN - MAP_TOP * 2 - homes) / rows);
+  const stationTop = MAP_TOP + above * HOME_GAP;
+  const live = model.result ? liveRaces(model) : [];
+  const stations = keys.map((key, i) => {
+    const kind = key.slice(0, key.indexOf(':')), name = key.slice(key.indexOf(':') + 1);
+    return { key, kind, name, y: stationTop + (i + 0.5) * gap,
+      conflicts: kind === 'variable' ? live.filter(r => r.variable === name).length : 0 };
+  });
+  const height = MAP_TOP * 2 + homes + rows * gap;
+  const yOf = new Map(stations.map(s => [s.key, s.y]));
+  const now = model.state ? model.cursor * step : 0;
+
+  const threads = model.threads.map((thread, t) => {
+    const lane = (t - (n - 1) / 2) * LANE;
+    const points = thread.ops.map((op, o) => ({ x: (col[t][o] + 0.5) * step, y: yOf.get(stationKey(op)) + lane, reached: col[t][o] < scheduled }));
+    const pc = model.state ? model.state.pc[t] : 0;
+    const finished = pc === points.length && points.length > 0;
+    const spans = model.result ? holdSpans(model.result.threads[t], model.result.lockSets) : [];
+    return {
+      homeY: t < above ? MAP_TOP + (t + 0.5) * HOME_GAP : stationTop + rows * gap + (t - above + 0.5) * HOME_GAP,
+      points,
+      trainX: finished ? Math.min(now, points[pc - 1].x + step * 0.8) : now,
+      endX: points.length ? points.at(-1).x + step * 0.8 + 52 : 90,
+      holds: spans.map(s => ({ name: s.name, from: s.from, to: s.released ? s.to : null })),
+      blocked: !!model.state && !finished && pc < points.length && !model.runnable[t],
+      cargo: model.state ? cargoOf(model, t) : []
+    };
+  });
+
   const at = new Map();
   model.threads.forEach((th, t) => th.ops.forEach((_, o) => at.set(opId(model, t, o), { t, o })));
-  const pairs = pairsOf(model).filter(p => p.key === model.pair || (p.race && raceStatus(model, p.race) !== 'unreachable'));
-  const used = [];
-  return pairs.map((p, i) => {
-    const a = at.get(p.opA.op.id), b = at.get(p.opB.op.id); // the engine lists the upper thread first
-    const jog = ((i % 5) - 2) * 7;
-    const xa = PLATE_W + a.o * TILE + TILE / 2 + jog, xb = PLATE_W + b.o * TILE + TILE / 2 + jog;
-    const row = layout.rows[a.t];
-    const channel = used[a.t] = (used[a.t] || 0) + 1;
-    const ya = row.top + TILE, yb = layout.rows[b.t].top;
-    const y = row.top + row.height - 6 - ((channel - 1) % 4) * 6;
-    const tone = p.safe ? 'safe' : p.race.severity;
-    const focus = model.pair ? (p.key === model.pair ? ' focus' : ' dim') : '';
-    return `<g class="wire wire-${tone}${focus}"><path d="M${xa} ${ya}V${y}H${xb}V${yb}"/><circle cx="${xa}" cy="${ya + 3}" r="3.5"/><circle cx="${xb}" cy="${yb - 3}" r="3.5"/></g>`;
-  }).join('');
+  const arcs = !model.result ? [] : pairsOf(model)
+    .filter(p => p.key === model.pair || (p.race && raceStatus(model, p.race) !== 'unreachable'))
+    .map(p => ({ key: p.key, tone: p.safe ? 'safe' : p.race.severity, a: at.get(p.opA.op.id), b: at.get(p.opB.op.id),
+      focus: p.key === model.pair, dim: !!model.pair && p.key !== model.pair }));
+
+  return { width, height, step, now, stations, threads, arcs };
 }
 
-function tileView(model, t, o) {
+// The copies thread t is carrying: what it read, and whether that is now out of date
+function cargoOf(model, t) {
+  const { result, state } = model;
+  return result.variables.map((name, i) => ({ name, value: state.locals[t][i], current: state.values[i] }))
+    .filter(c => c.value !== null)
+    .map(c => ({ name: c.name, value: c.value, stale: c.value !== c.current && model.willWrite(t, c.name) }));
+}
+
+// A thread's route as knots joined by S-bends: out from home, flat through each stop, and home again
+// unless the next stop is the very next step.
+function routeKnots(points, home, step) {
+  const DWELL = 16, reach = step * 0.72;
+  const knots = [{ x: 0, y: home }];
+  const add = (x, y) => knots.push({ x: Math.max(x, knots.at(-1).x), y });
+  points.forEach((p, i) => {
+    const prev = points[i - 1];
+    if (!prev || p.x - prev.x > step * 1.5) add(p.x - Math.min(reach, prev ? (p.x - prev.x) / 2 : p.x), home);
+    add(p.x - DWELL, p.y);
+    add(p.x + DWELL, p.y);
+    const next = points[i + 1];
+    if (!next) add(p.x + reach, home);
+    else if (next.x - p.x > step * 1.5) add(p.x + Math.min(reach, (next.x - p.x) / 2), home);
+  });
+  return knots;
+}
+function routeY(knots, x) {
+  let a = knots[0];
+  for (const b of knots) {
+    if (x <= b.x && b.x > a.x) {
+      const u = Math.max(0, (x - a.x) / (b.x - a.x));
+      return a.y + (b.y - a.y) * u * u * (3 - 2 * u);
+    }
+    a = b;
+  }
+  return a.y;
+}
+
+// Attributes of one stop's button
+function stopAttrs(model, t, o) {
   const op = model.threads[t].ops[o], id = opId(model, t, o);
   const conflicts = model.result ? liveRaces(model).filter(r => pairHas(r, id)).length : 0;
   const done = !!model.state && o < model.state.pc[t];
   const next = !!model.state && o === model.state.pc[t];
   const selected = !!model.selection && model.selection.t === t && model.selection.o === o;
-  const cls = ['tile', done && 'is-done', next && 'is-next', selected && 'is-selected', conflicts && 'is-race',
-    pairHas(selectedPair(model), id) && 'is-pair', !op.target.trim() && 'is-empty'].filter(Boolean).join(' ');
-  const label = `Thread ${t + 1}, operation ${o + 1}: ${op.type} ${op.target || 'no target'}` +
-    (conflicts ? `, ${plural(conflicts, 'conflict')}` : '') + (done ? ', done' : next ? ', next' : '');
-  return `<button type="button" class="${cls}" id="tile-${t}-${o}" data-action="select" data-t="${t}" data-o="${o}" draggable="true"
-    aria-pressed="${selected}" aria-label="${esc(label)}" title="${esc(`${op.type} ${op.target}`)}">
-    <span class="tile-type">${op.type}</span>${symbolSvg(op.type, done)}
-    <span class="tile-target">${esc(clip(op.target, 11)) || '?'}</span>
-    ${conflicts ? `<span class="tile-flag" aria-hidden="true">${conflicts}</span>` : ''}</button>`;
+  return {
+    className: ['stop', inkClass(t), done && 'is-done', next && 'is-next', selected && 'is-selected', conflicts && 'is-race',
+      pairHas(selectedPair(model), id) && 'is-pair', !op.target.trim() && 'is-empty'].filter(Boolean).join(' '),
+    label: `Thread ${t + 1}, operation ${o + 1}: ${op.type} ${op.target || 'no name'}` +
+      (conflicts ? `, ${plural(conflicts, 'conflict')}` : '') + (done ? ', done' : next ? ', next' : ''),
+    selected, type: op.type
+  };
 }
 
-function panelView(model) {
-  const layout = panelLayout(model);
-  const rows = model.threads.map((thread, t) => {
-    const { top, height, spans } = layout.rows[t];
-    const rails = spans.map(s => {
-      const left = PLATE_W + s.from * TILE + TILE / 2, right = PLATE_W + s.to * TILE + TILE / 2 + (s.released ? 0 : TILE / 2);
-      const label = s.released ? s.name : `${s.name}, never released`;
-      return `<div class="hold${s.released ? '' : ' hold-open'}" style="left:${left}px;width:${right - left}px;top:${TILE + 5 + s.lane * RAIL_H}px" title="${esc(label)}"><span>${esc(clip(label, 24))}</span></div>`;
-    }).join('');
-    const pc = model.state ? model.state.pc[t] : 0;
-    return `<div class="row ${inkClass(t)}" style="top:${top}px;height:${height}px">
-      <div class="track-bed" style="left:${PLATE_W}px"></div>
-      <div class="plate"><span class="plate-num">${t + 1}</span>
-        <input class="plate-name" id="name-${t}" data-input="name" data-t="${t}" value="${esc(thread.name)}" aria-label="Name of thread ${t + 1}" autocomplete="off" spellcheck="false">
-        <button type="button" class="plate-remove" id="remove-thread-${t}" data-action="remove-thread" data-t="${t}" aria-label="Remove thread ${t + 1}">Remove</button></div>
-      <div class="tiles">${thread.ops.map((_, o) => tileView(model, t, o)).join('')}<button type="button" class="tile tile-add" id="add-${t}" data-action="add-op" data-t="${t}" aria-label="Add operation to thread ${t + 1}"><span>Add</span></button></div>
-      ${rails}
-      <div class="berth" data-berth="${t}" style="left:${PLATE_W + pc * TILE}px" aria-hidden="true">${t + 1}</div>
-    </div>`;
-  }).join('');
-  return `<div class="mosaic" style="min-width:${layout.width}px;height:${layout.height}px">
-    <svg class="wires" width="${layout.width}" height="${layout.height}" aria-hidden="true">${wiresView(model, layout)}</svg>${rows}</div>`;
+// Live value shown on a station's nameboard
+function stationValue(model, s) {
+  if (!model.state) return '';
+  const { state, result } = model;
+  if (s.kind === 'variable') return String(state.values[result.variables.indexOf(s.name)]);
+  if (s.kind === 'semaphore') return String(state.counts[result.semaphores.indexOf(s.name)]);
+  const owner = state.owner[result.locks.indexOf(s.name)];
+  return owner < 0 ? 'free' : `held by ${owner + 1}`;
 }
 
 // ── Inspector ────────────────────────────────────────────────────────────────
 function inspectorView(model) {
   const s = model.selection;
-  if (!s) return `<p class="hint">Select a tile to change it. Red wires join operations that can collide.</p>`;
+  if (!s) return '';
   const ops = model.threads[s.t].ops, op = ops[s.o];
   const types = OP_TYPES.map(type => `<label class="type-option${type === op.type ? ' is-on' : ''}">
     <input type="radio" name="op-type" id="type-${type}" value="${type}" data-input="type" ${type === op.type ? 'checked' : ''}><span>${type}</span></label>`).join('');
@@ -190,6 +244,7 @@ function inspectorView(model) {
       <button type="button" id="move-back" data-action="move-op" data-by="-1" ${s.o === 0 ? 'disabled' : ''}>Move left</button>
       <button type="button" id="move-on" data-action="move-op" data-by="1" ${s.o === ops.length - 1 ? 'disabled' : ''}>Move right</button>
       <button type="button" id="remove-op" data-action="remove-op">Remove</button>
+      <button type="button" id="close-op" data-action="deselect">Done</button>
     </div></fieldset>`;
 }
 
@@ -203,20 +258,17 @@ function blockReason(model, t) {
   const target = op.target.trim();
   if (op.type !== 'LOCK') return `${target} is at 0`;
   const owner = model.state.owner[model.result.locks.indexOf(target)];
-  return owner === t ? `${target} is already held by this thread` : `${target} is held by ${owner + 1}`;
+  return owner === t ? `${target} is already held by this thread` : `${target} is held by thread ${owner + 1}`;
 }
 
-function leversView(model) {
-  if (!model.state) return '<p class="hint">The levers unlock when the program is complete.</p>';
-  return model.threads.map((thread, t) => {
-    const op = thread.ops[model.state.pc[t]];
-    const state = !op ? 'done' : model.runnable[t] ? 'free' : 'locked';
-    const status = state === 'done' ? 'Finished' : state === 'free' ? `${op.type} ${op.target.trim()}` : blockReason(model, t);
-    return `<button type="button" class="lever lever-${state} ${inkClass(t)}" id="lever-${t}" data-action="pull" data-t="${t}" ${state === 'free' ? '' : 'aria-disabled="true"'}>
-      <span class="lever-slot" aria-hidden="true"><span class="lever-arm" data-arm="${t}"></span></span>
-      <span class="lever-num">${t + 1}</span><span class="lever-name">${esc(clip(thread.name || `Thread ${t + 1}`, 14))}</span>
-      <span class="lever-status">${state === 'locked' ? '<b>Blocked.</b> ' : ''}${esc(clip(status, 34))}</span></button>`;
-  }).join('');
+function leverParts(model, t) {
+  const thread = model.threads[t];
+  const name = thread.name || `Thread ${t + 1}`;
+  if (!model.state) return { state: 'locked', name, status: 'Program incomplete' };
+  const op = thread.ops[model.state.pc[t]];
+  if (!op) return { state: 'done', name, status: 'Finished' };
+  if (model.runnable[t]) return { state: 'free', name, status: `${op.type} ${op.target.trim()}` };
+  return { state: 'locked', name, status: `Blocked: ${blockReason(model, t)}` };
 }
 
 function challengeView(model) {
@@ -273,106 +325,30 @@ function boardView(model) {
     ${model.threads.map((_, t) => `<th scope="col">Copy in ${t + 1}</th>`).join('')}</tr></thead><tbody>
     ${result.variables.map((v, i) => `<tr><th scope="row" title="${esc(v)}">${esc(clip(v, 16))}</th><td class="value">${state.values[i]}</td>${model.threads.map((_, t) => copyCell(t, i)).join('')}</tr>`).join('')}
     </tbody></table>` : '';
-  const locks = result.locks.map((l, i) => `<li class="token${state.owner[i] >= 0 ? ' is-out' : ''}"><span class="token-name">${esc(clip(l, 16))}</span>
-    <span>${state.owner[i] >= 0 ? `held by ${state.owner[i] + 1}` : 'free'}</span></li>`).join('');
-  const sems = result.semaphores.map((s, i) => `<li class="token"><span class="token-name">${esc(clip(s, 16))}</span><span>now ${state.counts[i]}</span>
-    <label class="sem-start">starts at <input type="number" id="sem-${i}" min="0" max="99" value="${model.countOf(s)}" data-input="semaphore" data-name="${esc(s)}"></label></li>`).join('');
-  return vars + (locks || sems ? `<ul class="tokens">${locks}${sems}</ul>` : '');
-}
-
-// ── Train graph: time left to right, one line per shared thing ───────────────
-function graphView(model) {
-  if (!model.state) return '';
-  const { result, schedule, states, cursor } = model;
-  const stations = [...result.variables.map(n => ({ n, kind: 'v' })), ...result.locks.map(n => ({ n, kind: 'l' })), ...result.semaphores.map(n => ({ n, kind: 's' }))];
-  const rowOf = new Map(stations.map((s, i) => [`${s.kind}:${s.n}`, i + 1]));
-  const kindOf = { READ: 'v', WRITE: 'v', LOCK: 'l', UNLOCK: 'l', WAIT: 's', SIGNAL: 's' };
-  const n = model.threads.length;
-  const total = Math.max(schedule.length, 4), STEP_W = stepWidth(total);
-  const width = STATION_W + total * STEP_W + 30, height = GRAPH_TOP + (stations.length + 1) * STATION_H;
-  const yRow = r => GRAPH_TOP + (r + 0.5) * STATION_H;
-  const yOf = (r, t) => yRow(r) + (t - (n - 1) / 2) * 5;
-  const xOf = k => STATION_W + (k + 0.5) * STEP_W;
-  const now = STATION_W + cursor * STEP_W;
-
-  const steps = schedule.map((t, k) => {
-    const op = result.threads[t].operations[states[k].pc[t]];
-    return { t, k, op, row: rowOf.get(`${kindOf[op.type]}:${op.target}`) };
-  });
-
-  let grid = `<text class="station" x="${STATION_W - 12}" y="${yRow(0) + 4}">not started</text><line class="station-line" x1="${STATION_W}" x2="${width}" y1="${yRow(0)}" y2="${yRow(0)}"/>`;
-  stations.forEach((s, i) => {
-    grid += `<text class="station station-${s.kind}" x="${STATION_W - 12}" y="${yRow(i + 1) + 4}">${esc(clip(s.n, 13))}<title>${esc(s.n)}</title></text>
-      <line class="station-line line-${s.kind}" x1="${STATION_W}" x2="${width}" y1="${yRow(i + 1)}" y2="${yRow(i + 1)}"/>`;
-  });
-  for (let k = 0; k < total; k++) {
-    grid += `<line class="time-line" x1="${STATION_W + k * STEP_W}" x2="${STATION_W + k * STEP_W}" y1="${GRAPH_TOP}" y2="${height}"/>`;
-    if (k < schedule.length) grid += `<text class="time ${inkClass(schedule[k])}" x="${xOf(k)}" y="${GRAPH_TOP - 10}">${schedule[k] + 1}</text>`;
-  }
-
-  // Stretches of time during which a lock is held
-  const held = new Map();
-  const band = (s, to) => `<rect class="held ${inkClass(s.t)}" x="${xOf(s.k)}" width="${xOf(to) - xOf(s.k)}" y="${yRow(s.row) - 11}" height="22"/>`;
-  let bands = '';
-  steps.forEach(s => {
-    if (s.op.type === 'LOCK') held.set(s.op.target, s);
-    const from = held.get(s.op.target);
-    if (s.op.type === 'UNLOCK' && from && from.t === s.t) { bands += band(from, s.k); held.delete(s.op.target); }
-  });
-  for (const s of held.values()) bands += band(s, total);
-
-  const pair = selectedPair(model);
-  let lines = '', marks = '';
-  model.threads.forEach((thread, t) => {
-    const ink = inkClass(t), mine = steps.filter(s => s.t === t);
-    let y = yOf(0, t), d = `M${STATION_W} ${y}`;
-    mine.forEach(s => {
-      const yNext = yOf(s.row, t);
-      d += `H${xOf(s.k) - Math.min(STEP_W, 46) * 0.5}L${xOf(s.k)} ${yNext}`;
-      y = yNext;
-    });
-    const finished = mine.length === thread.ops.length;
-    if (!finished) d += `H${STATION_W + total * STEP_W}`;
-    lines += `<path class="path ${ink} dash-${t % 6}" d="${d}"/>`;
-    if (finished && mine.length) {
-      const x = xOf(mine.at(-1).k);
-      marks += `<path class="terminus ${ink}" d="M${x} ${y}H${x + 12}M${x + 12} ${y - 5}V${y + 5}"/>`;
-    }
-    mine.forEach(s => {
-      const x = xOf(s.k), yy = yOf(s.row, t);
-      const open = s.op.type === 'READ' || s.op.type === 'UNLOCK' || s.op.type === 'SIGNAL' ? ' open' : '';
-      const shape = kindOf[s.op.type] === 'v' ? `<circle class="mark${open}" cx="${x}" cy="${yy}" r="4.5"/>`
-        : `<rect class="mark${open}" x="${x - 4.5}" y="${yy - 4.5}" width="9" height="9"/>`;
-      marks += `<g class="${ink}">${pairHas(pair, s.op.id) ? `<circle class="pair-ring" cx="${x}" cy="${yy}" r="10"/>` : ''}${shape}</g>`;
-      if (model.isStale(s.k)) marks += `<path class="lost" d="M${x - 8} ${yy - 8}l16 16M${x + 8} ${yy - 8}l-16 16"/>`;
-    });
-  });
-  const hits = schedule.map((_, k) => `<rect class="hit" data-action="jump" data-k="${k + 1}" x="${STATION_W + k * STEP_W}" y="0" width="${STEP_W}" height="${height}"><title>${esc(describeStep(model, k))}</title></rect>`).join('');
-  return `<svg class="graph" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(graphSummary(model))}">
-    <defs><clipPath id="past"><rect x="0" y="0" width="${now}" height="${height}"/></clipPath>
-    <clipPath id="plan"><rect x="${now}" y="0" width="${Math.max(0, width - now)}" height="${height}"/></clipPath></defs>
-    ${grid}<g clip-path="url(#plan)" class="plan">${bands}${lines}${marks}</g><g clip-path="url(#past)">${bands}${lines}${marks}</g>
-    <line class="now" x1="${now}" x2="${now}" y1="4" y2="${height}"/>${hits}</svg>`;
-}
-
-function graphSummary(model) {
-  const order = model.schedule.map(t => t + 1).join(', ') || 'none';
-  return `Schedule by thread number: ${order}. ${plural(model.cursor, 'step')} run so far.`;
+  return vars;
 }
 
 // ── Endings ──────────────────────────────────────────────────────────────────
 const MAX_ENDINGS = 12;
+// Split-flap lettering; the real text sits beside it for screen readers
+function flaps(text) {
+  return `<span class="flaps" aria-hidden="true">${[...clip(text, 26)].map((c, i) => `<i style="--i:${i}">${c === ' ' ? '&nbsp;' : esc(c)}</i>`).join('')}</span>`;
+}
 function endingsView(model) {
-  if (!model.result) return '';
+  if (!model.result) return '<p class="lead">Waiting for a complete program.</p>';
+  if (!model.threads.some(t => t.ops.length)) return '<p class="lead">Add a thread, then give it operations.</p>';
   const { exploration: x, result } = model;
   const values = o => result.variables.map((v, i) => `${clip(v, 14)} = ${o.values[i]}`).join(', ') || 'finishes';
-  const rows = x.outcomes.slice(0, MAX_ENDINGS).map((o, i) => `<li><span class="ending-values">${esc(values(o))}</span>
-    <button type="button" id="ending-${i}" data-action="run-ending" data-i="${i}" aria-label="Run it: ${esc(values(o))}">Run it</button></li>`).join('');
+  const via = schedule => schedule.map(t => t + 1).join(' ');
+  const row = (id, action, text, schedule, cls) => `<li class="${cls}"><span class="sr-only">${esc(text)}</span>${flaps(text)}
+    <span class="via" title="Order of threads">${esc(clip(via(schedule), 24))}</span>
+    <button type="button" id="${id}" ${action} aria-label="Run it: ${esc(text)}">Run</button></li>`;
+  const rows = x.outcomes.slice(0, MAX_ENDINGS).map((o, i) => row(`ending-${i}`, `data-action="run-ending" data-i="${i}"`, values(o), o.schedule, '')).join('');
   const extra = x.outcomes.length > MAX_ENDINGS ? `<li class="more">and ${x.outcomes.length - MAX_ENDINGS} more</li>` : '';
-  const dead = x.deadlock ? `<li class="ending-dead"><span class="ending-values">Deadlock: ${esc(x.deadlock.blocked.map(b => `${threadNumber(model, b.thread)} stuck at ${b.op.type} ${b.op.target}`).join(', '))}</span>
-    <button type="button" id="ending-dead" data-action="run-deadlock" aria-label="Run it: deadlock">Run it</button></li>` : '';
+  const dead = x.deadlock ? row('ending-dead', 'data-action="run-deadlock"', 'Deadlock', x.deadlock.schedule, 'dead') : '';
   const lead = x.outcomes.length === 0 ? 'No schedule finishes.'
-    : x.outcomes.length === 1 && !x.deadlock ? 'One ending. The order of the threads does not change the result.'
+    : x.outcomes.length === 1 && !x.deadlock ? (liveRaces(model).length ? 'Memory always ends the same, but threads can read different values on the way.'
+      : 'One ending. The order of the threads does not change the result.')
     : 'The result depends on who runs when.';
   const proof = x.complete ? `Every schedule checked (${plural(x.states, 'state')}).` : `Stopped after ${x.states.toLocaleString('en')} states. There may be more.`;
   return `<p class="lead">${lead}</p><ul class="endings">${dead}${rows}${extra}</ul><p class="proof">${proof}</p>`;
@@ -477,6 +453,6 @@ function reportMarkdown(model) {
 
 // Browser pages load this as a classic script; Node tests require() it.
 if (typeof module !== 'undefined') {
-  module.exports = { OP_TYPES, esc, clip, holdSpans, annunciatorView, panelView, inspectorView, problemsView, leversView, challengeView,
-    describeStep, logView, boardView, graphView, endingsView, registerView, reportMarkdown, raceStatus, pairsOf };
+  module.exports = { OP_TYPES, esc, clip, holdSpans, annunciatorView, mapLayout, routeKnots, routeY, stopAttrs, stationValue, inspectorView, problemsView, leverParts,
+    challengeView, describeStep, logView, boardView, endingsView, registerView, reportMarkdown, raceStatus, pairsOf };
 }

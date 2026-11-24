@@ -7,13 +7,14 @@ SIGNAL operations, then see which accesses can race, why, and how to fix them.
 
 ## What it does
 
-- Finds possible races using Bernstein's conditions, lockset analysis and semaphore happens-before ordering
-- Simulates one schedule step by step, showing blocked threads and deadlock
-- Shows a timeline, a memory heatmap and a report with fix suggestions (exports to Markdown)
-- Generates runnable C (pthreads) and Python for the design
+- Draws each thread as a train line that swoops in to touch what it shares. Drag stops to change the program.
+- Makes you the scheduler: pull a lever to run a thread, and watch an update get lost.
+- Finds races with Bernstein's conditions, lockset analysis and semaphore ordering, then checks every schedule
+  (up to 20,000 states) for a moment when both sides really can run.
+- Lists every possible ending, including deadlock, and replays any of them.
+- Exports a Markdown report and generates runnable C (pthreads) and Python.
 
-Race reports mean "could overlap", so some may be false positives. Deadlock is checked in the simulated
-schedule only, so finding none does not prove there is none.
+Keys: 1-9 pull a lever, left and right step, Alt+arrows reorder a stop, Ctrl+Z undoes.
 
 ## Run
 
@@ -26,3 +27,7 @@ node --test
 ```
 
 Tested on Node 22. Python is optional; tests that run generated Python are skipped without it.
+
+## Credits
+
+Typeface: [DINish](https://github.com/playbeing/dinish), SIL Open Font License (`fonts/OFL.txt`).
