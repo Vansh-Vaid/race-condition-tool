@@ -25,4 +25,4 @@ Open `index.html` in a browser. There is nothing to install or build.
 node --test
 ```
 
-Needs Node 18 or later. Python is optional; tests that run generated Python are skipped without it.
+Tested on Node 22. Python is optional; tests that run generated Python are skipped without it.

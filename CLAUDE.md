@@ -1,114 +1,91 @@
 # RaceGuard
 
 Educational, browser-only race condition detector. The user designs threads out of operations
-(READ, WRITE, LOCK, UNLOCK, WAIT, SIGNAL); the engine finds conflicting pairs with Bernstein's
-conditions and filters them by lockset. Vanilla HTML/CSS/JS: no dependencies, no build, no tests.
+(READ, WRITE, LOCK, UNLOCK, WAIT, SIGNAL); the engine reports which accesses may race and simulates one
+schedule. Vanilla HTML/CSS/JS with no dependencies and no build step: keep it that way.
 
 - **Run:** open `index.html`, or `python -m http.server` from the root.
+- **Test:** `node --test` (covers `engine.js` and `codegen.js`). UI changes need a browser check in both
+  themes and at phone width.
 - **Deploy:** GitHub Pages serves `main` from the root, so **every push to `main` goes live** at
   https://vansh-vaid.github.io/race-condition-tool/. Develop on a branch.
-- **Contributors:** Vansh Vaid, kashvibansal11, Nayanavamal. Many commit messages are inaccurate
-  (e.g. "Update print statement from 'Hello' to 'Goodbye'"); trust diffs over messages.
+- **Contributors:** Vansh Vaid, kashvibansal11, Nayanavamal. Many commit messages before 2026-11 are
+  inaccurate (e.g. "Update print statement from 'Hello' to 'Goodbye'"); trust diffs over messages.
 
 ## Architecture
 
-`index.html` loads `engine.js`, then `ui.js`, as classic scripts sharing one global scope. Load order
+`index.html` loads `engine.js`, `codegen.js`, then `ui.js`, as classic scripts sharing one global scope. Order
 matters, and functions must stay global because markup calls them through inline `onclick` handlers.
 
 | File | Role |
 | --- | --- |
-| `engine.js` | `RaceDetectionEngine`, `PRESETS`, the `engine` singleton. No DOM access; runs in Node. |
-| `ui.js` | All state, rendering, theming, export and code generation. |
+| `engine.js` | `RaceDetectionEngine`, `PRESETS`, the `engine` singleton. No DOM access. |
+| `codegen.js` | `generateCode(lang, threads, semaphoreCounts)`. No DOM access. |
+| `ui.js` | All state, rendering, theming, persistence and export. |
 | `style.css` | Design tokens in `:root`, dark overrides in `:root[data-theme="dark"]`. |
-| `theme.js`, `updater.js`, `theme-installer.js`, `palettr-updater.js` | Spent codemods (see Gotchas). |
 
-**Data flow:** `uiThreads` (editable design) → `runDetection()` copies it into `engine` →
-`engine.detect()` → `detectionResult` → `renderTimeline/Heatmap/Report`. `renderCode` is the exception:
-it reads `uiThreads` directly. `detect()` returns `races`, `safePairs`, `interleaving`, `lockSets`,
-`variables`, `locks`, `threads`, `critical`, `warnings`.
+**Data flow:** `uiThreads` + `semaphoreCounts` (the editable design) → `runDetection()` copies them into
+`engine` → `engine.detect()` → `detectionResult` → `renderTimeline/Heatmap/Report`. `renderCode` reads the
+design directly. Every edit must end in `designChanged()`, which saves the design and drops stale results.
 
-**Detection rules:** a pair races when it spans two threads, hits the same variable, includes a WRITE, and
-shares no held lock. WW is `critical`; RW and WR are `warning`. WAIT counts as acquiring and SIGNAL as
-releasing, so semaphores behave as mutexes.
+**Detection rules:** a pair is a candidate when it spans two threads, hits the same variable and includes a
+WRITE. It is safe if both hold a common lock, or if one must happen before the other; otherwise it is a
+possible race. WW is `critical`; RW and WR are `warning`.
 
-**Persistence:** `localStorage` keys `raceguard-theme` and `raceguard-visited` only. Designs are not saved.
+**Semaphores:** each has an initial count, default 1. It acts as a lock only at count 1 when no thread
+signals it without having waited. Ordering comes from `_happensBefore`: a SIGNAL precedes a WAIT only if the
+WAIT cannot pass without it. Any change must stay sound: never call a pair safe that some schedule can
+overlap.
+
+**Simulation:** one round-robin schedule that respects blocking. `deadlock` describes that schedule only;
+`null` is not proof of absence, so UI text must not claim it.
+
+**Persistence:** `localStorage` keys `raceguard-theme`, `raceguard-visited` and `raceguard-design`, always
+through the `storage` wrapper because access can throw.
 
 ### Gotchas
 
-- **Codemods:** the four Node scripts rewrite `style.css`, `index.html` and `ui.js` in place by regex. They
-  have already been applied. Rerunning `theme.js` or `updater.js` overwrites about 100 lines of current
-  styling; the other two are now no-ops. Edit the app files directly.
-- **Colors live in three places:** the CSS tokens, `PALETTE_LIGHT`/`PALETTE_DARK` in `ui.js`, and the initial
-  `let` values at the top of `ui.js`. SVG code appends alpha suffixes (`${color}1a`), so the JS palettes
-  must be 6-digit hex.
-- **Adding an operation type** touches: `computeLockSets` and `getLocks` (engine); both palettes,
-  `renderThreads`, `updateSharedVars`, `updateNarration`, `renderCode` (ui); badge and legend CSS; and the
-  help, legend and Learn markup in `index.html`.
-- **Preset cards are hardcoded in `index.html`**, including op counts. `label` and `description` in
-  `PRESETS` are unused, so a new preset needs both places.
-- **Two meanings of `t1, t2…`:** the timeline numbers each thread's own op index; the heatmap numbers global
-  interleaving steps.
-
-### Engine baseline
-
-There is no test suite, so recheck these after any engine change (verified 2026-11-24):
-
-| Preset | Races | Critical | Warning | Safe |
-| --- | --- | --- | --- | --- |
-| counter | 3 | 1 | 2 | 0 |
-| bank | 3 | 1 | 2 | 0 |
-| producer | 3 | 1 | 2 | 0 |
-| rw | 3 | 0 | 3 | 0 |
+- **Escape every user-supplied name** with `esc()` before it reaches `innerHTML`.
+- **Wording:** findings are possible races, so write "may" and "possible".
+- **Colors live in two places:** CSS tokens, and `PALETTE_LIGHT`/`PALETTE_DARK` in `ui.js` (6-digit hex,
+  because SVG code appends alpha suffixes). White text goes on `--fill`/`--fill2`; `--accent` is for text.
+- **Adding an operation type** touches: `computeLockSets`, `_simulate`, `_targets` callers (engine); `lower`
+  and both generators (codegen); `OP_TYPES`, `OP_ABBR`, both palettes, `updateSharedVars`,
+  `updateNarration` (ui); badge and legend CSS; help, legend and Learn markup.
+- **Adding a preset:** add it to `PRESETS` only; its card is generated.
 
 ## Progress
 
 Keep this section current: when a change lands, tick or move its item, and add one dated line to the log.
 
+### Status
+
+Branch `fix/correctness-pass` is complete and committed locally, awaiting review. It is not pushed, so the
+live site still runs the old code.
+
 ### Done
 
-- [x] Detection engine, 4 presets, thread designer with drag-to-reorder
+- [x] Detection (Bernstein, lockset, semaphore ordering), blocking simulation and deadlock reporting
+- [x] 6 presets, thread designer with drag-to-reorder, semaphore counts, saved designs
 - [x] Timeline with step-through, autoplay and narration; heatmap; report with fix suggestions
-- [x] Markdown report export
-- [x] Light/dark themes, responsive layout, mobile drawer, onboarding, keyboard shortcuts
+- [x] Markdown export; runnable C (pthreads) and Python
+- [x] Light/dark themes, responsive layout, onboarding, keyboard support (Lighthouse accessibility 100)
+- [x] Engine and codegen tests
 
-### In progress
+### Known limits
 
-- [ ] Code tab (C pthreads and Python): UI works, generated output is broken (see Known issues).
-- [ ] WAIT/SIGNAL support: engine, palettes, badges and code generation are done. Missing from
-      `updateSharedVars`, `updateNarration` (sentence stops after "performs"), the timeline legend, and
-      the help, onboarding and Learn text.
+- [ ] Deadlock is checked in one schedule. Exploring all schedules would find the rest, and could replay them.
+- [ ] Lockset analysis can report false positives, e.g. accesses ordered only by mutex hand-off.
+- [ ] Generated C is syntax-checked with stub headers, not run (no pthreads on the dev machine).
+- [ ] `ui.js` has no automated tests; its behavior is checked in a browser.
+- [ ] Operations can be reordered only by mouse drag (no keyboard or touch).
 
-### Known issues
+### Ideas
 
-Confirmed by running the code:
-
-- [ ] Generated Python never starts its threads: the launch code is indented into the last function
-      (`ui.js`, `renderCode`).
-- [ ] Generated C emits `int temp` per READ, so two READs in one thread fail to compile with a redefinition
-      error (hits the `producer` preset).
-- [ ] SIGNAL→WAIT ordering is reported as a race (false positive), since there is no happens-before model.
-- [ ] `_buildInterleaving` ignores blocking: it shows two threads holding the same mutex at once.
-- [ ] Thread and variable names reach `innerHTML` unescaped in the report. From reading, also in thread
-      cards, shared state, heatmap and narration. `esc()` exists but skips quotes, so it is unsafe for
-      attributes.
-
-From reading, not yet reproduced in a browser:
-
-- [ ] Light theme: timeline labels and report text use hardcoded near-white colors
-      (`rgba(255,255,255,…)`, `#fff`, `#eef0ff`) on white.
-- [ ] Global Enter/Space handlers call `preventDefault`, overriding keyboard activation of focused buttons.
-- [ ] Editing threads after detection leaves stale results on screen.
-- [ ] Double-clicking an op's ✕ can delete the next op too: `deleteOp` splices by index after a 230 ms delay.
-- [ ] Generated identifiers can collide or be invalid: names differing only in punctuation, leading digits,
-      or a name shared by a variable and a lock.
-
-### Suggested next
-
-1. Fix code generation (the first two confirmed issues).
-2. Finish WAIT/SIGNAL.
-3. Fix light theme contrast and escaping.
-4. Add engine tests from the baseline table.
-5. Delete the spent codemods and add a README.
+1. Exhaustive schedule exploration with a witness interleaving per race.
+2. Keyboard and touch reordering.
+3. Share a design by URL.
+4. GitHub Actions running `node --test` on pull requests; protect `main`.
 
 ### Log
 
@@ -117,4 +94,5 @@ From reading, not yet reproduced in a browser:
 - 2026-04-22: Onboarding, mobile drawer, drag-to-reorder, themes and adaptive palettes.
 - 2026-04-23: WAIT/SIGNAL, Code tab, report export.
 - 2026-04-24: CSS and HTML polish (`b39690a`).
-- 2026-11-24: Project analyzed; CLAUDE.md created. No app code changed.
+- 2026-11-24: CLAUDE.md created. Correctness pass on `fix/correctness-pass`: engine semantics, codegen
+  rewrite, UI bugs, accessibility, tests, README; removed four spent codemods.
